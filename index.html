@@ -1,806 +1,153 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Workplace Price Scanner</title>
-  <style>
-    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    body { margin: 0; background: #0b0d12; color: #e8eaf0; }
-    header { padding: 16px 18px; border-bottom: 1px solid #22283a; background: #0f1320; }
-    header h1 { margin: 0; font-size: 18px; }
-    main { max-width: 1100px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; }
-    .grid { display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }
-    @media (max-width: 950px) { .grid { grid-template-columns: 1fr; } }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simple Workplace Scanner</title>
 
-    .card { background: #11172a; border: 1px solid #1f2740; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    button {
-      background: #2b67f6; color: #fff; border: 0; padding: 10px 12px;
-      border-radius: 10px; cursor: pointer; font-weight: 800;
-    }
-    button.secondary { background: #25304f; }
-    button.danger { background: #7a2230; }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
-    input, select {
-      background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
-      padding: 10px 12px; border-radius: 10px; width: 100%;
-      box-sizing: border-box;
-    }
-
-    #videoWrap { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid #223055; background: #070a12; }
-    video { width: 100%; height: auto; display: block; }
-
-    #overlay { position: absolute; inset: 0; pointer-events: none; display: grid; place-items: center; }
-    #overlay .box {
-      width: min(74%, 560px);
-      aspect-ratio: 2.2 / 1;
-      border: 3px solid rgba(43,103,246,0.95);
-      border-radius: 14px;
-      box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
-    }
-    #hint {
-      position: absolute; left: 12px; right: 12px; bottom: 12px;
-      background: rgba(11,16,32,0.75);
-      border: 1px solid rgba(36,48,86,0.85);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-size: 13px;
-      color: #cfd6ee;
-      backdrop-filter: blur(6px);
-    }
-
-    .pill { display: inline-flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 999px; background: #0b1020; border: 1px solid #243056; }
-    .ok { color: #67f69b; }
-    .warn { color: #ffcc66; }
-    .bad { color: #ff6b6b; }
-
-    .tag { display: grid; gap: 10px; background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px; }
-    .price { font-size: 42px; font-weight: 900; letter-spacing: 0.3px; }
-    .muted { color: #aab3cf; font-size: 13px; }
-    .kvs { display: grid; gap: 6px; }
-    .kv { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #1a2342; padding: 6px 0; }
-    .kv span:first-child { color: #aab3cf; }
-
-    code { background: #0b1020; padding: 2px 6px; border-radius: 8px; border: 1px solid #243056; }
-    .small { font-size: 12px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    .divider { height: 1px; background: #1f2740; margin: 12px 0; }
-
-    .debug {
-      background: #070a12;
-      border: 1px solid #243056;
-      border-radius: 12px;
-      padding: 10px;
-      font-size: 12px;
-      line-height: 1.35;
-      max-height: 180px;
-      overflow: auto;
-      white-space: pre-wrap;
-    }
-
-    canvas#snapCanvas {
-      width: 100%;
-      border-radius: 14px;
-      border: 1px solid #223055;
-      background: #070a12;
-      display: none;
-    }
-  </style>
+<style>
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto;
+  background:#0b0d12;
+  color:#e8eaf0;
+}
+header{
+  padding:14px 16px;
+  background:#0f1320;
+  border-bottom:1px solid #22283a;
+}
+main{
+  max-width:900px;
+  margin:auto;
+  padding:16px;
+}
+.card{
+  background:#11172a;
+  border:1px solid #1f2740;
+  border-radius:12px;
+  padding:14px;
+  margin-bottom:14px;
+}
+video{
+  width:100%;
+  border-radius:12px;
+  border:1px solid #223055;
+}
+button,select,input{
+  background:#25304f;
+  color:#fff;
+  border:0;
+  padding:10px;
+  border-radius:10px;
+}
+button{font-weight:700}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.tag{
+  border:1px dashed #3a4a7a;
+  padding:12px;
+  border-radius:12px;
+}
+.price{font-size:36px;font-weight:900}
+.muted{color:#aab3cf;font-size:13px}
+</style>
 </head>
+
 <body>
-<header><h1>Workplace Price Scanner</h1></header>
+<header>
+  <h2>Workplace Price Scanner</h2>
+</header>
 
 <main>
-  <div class="grid">
-    <section class="card">
-      <div class="row" style="justify-content: space-between;">
-        <div class="pill" id="statusPill"><span class="warn">●</span><span id="statusText">Ready</span></div>
-        <div class="row" style="min-width: 290px;">
-          <select id="cameraSelect" aria-label="Camera selection">
-            <option value="back">Back Camera</option>
-            <option value="front">Front Camera</option>
-          </select>
-          <button class="secondary" id="reloadDbBtn" title="Reload items.json">Reload DB</button>
-        </div>
-      </div>
 
-      <div style="height: 12px;"></div>
-
-      <div id="videoWrap">
-        <video id="video" playsinline muted></video>
-        <div id="overlay"><div class="box"></div></div>
-        <div id="hint">
-          Keep barcode inside the box, avoid glare. Tap <b>Snap & Scan</b> if live scan misses.
-          <span class="small">(Flashlight may be unavailable on iOS if torch isn’t exposed.)</span>
-        </div>
-      </div>
-
-      <div style="height: 12px;"></div>
-
-      <div class="row">
-        <button id="startBtn">Start</button>
-        <button class="secondary" id="snapBtn" disabled>Snap & Scan</button>
-        <button class="secondary" id="focusBtn" disabled>Focus</button>
-        <button class="secondary" id="torchBtn" disabled>Flashlight</button>
-        <button class="secondary" id="stopBtn" disabled>Stop</button>
-      </div>
-
-      <div style="margin-top:12px;">
-        <canvas id="snapCanvas"></canvas>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="row">
-        <div style="flex: 1; min-width: 260px;">
-          <label class="muted" for="manualInput">Manual barcode lookup</label>
-          <input id="manualInput" placeholder="Type / paste a barcode..." inputmode="numeric" />
-        </div>
-        <div style="width: 180px;">
-          <label class="muted" for="qtyInput">Qty</label>
-          <input id="qtyInput" type="number" min="1" value="1" />
-        </div>
-        <div style="width: 180px; align-self: end;">
-          <button id="manualBtn" class="secondary" style="width: 100%;">Lookup</button>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <h3 style="margin:0 0 8px; font-size:14px;">Unknown barcode support</h3>
-      <p class="muted" style="margin:0 0 10px;">
-        If a code isn’t found, fill the form and save locally. Then download updated <code>items.json</code>.
-      </p>
-
-      <div class="row">
-        <button class="secondary" id="exportBtn">Download updated items.json</button>
-        <button class="danger" id="clearLocalBtn">Clear local saved items</button>
-      </div>
-      <div class="muted small" style="margin-top:8px;">
-        Local changes saved: <span id="localCount">0</span> item(s)
-      </div>
-
-      <div class="divider"></div>
-      <div class="muted small">Debug</div>
-      <div id="debug" class="debug"></div>
-    </section>
-
-    <aside class="card">
-      <h2 style="margin:0 0 10px; font-size:16px;">Product Details</h2>
-
-      <div class="tag" id="tag">
-        <div class="muted">Scan an item to show its details.</div>
-      </div>
-
-      <div style="height: 14px;"></div>
-
-      <h3 style="margin:0 0 8px; font-size:14px;">Last Scan</h3>
-      <div class="kvs">
-        <div class="kv"><span>Barcode</span><span id="lastBarcode">—</span></div>
-        <div class="kv"><span>Time</span><span id="lastTime">—</span></div>
-        <div class="kv"><span>Mode</span><span id="lastMode">—</span></div>
-        <div class="kv"><span>Engine</span><span id="lastEngine">—</span></div>
-      </div>
-    </aside>
+<div class="card">
+  <div class="row">
+    <select id="cameraSelect">
+      <option value="environment">Back Camera</option>
+      <option value="user">Front Camera</option>
+    </select>
+    <button id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
   </div>
+
+  <video id="video" playsinline muted></video>
+</div>
+
+<div class="card">
+  <h3>Result</h3>
+  <div id="result" class="tag muted">Scan a barcode</div>
+</div>
+
 </main>
 
-<!-- ZXing fallback (only used if BarcodeDetector not available) -->
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <script>
-  // ------------------ CONFIG ------------------
-  const ITEMS_DB_URL = "./items.json";
-  const LOCAL_KEY = "wps_local_items_bd_v1";
-  const ACCEPT_SAME_MS = 1200;
-  const LIVE_INTERVAL_MS = 200;
-  // --------------------------------------------
+const video = document.getElementById("video");
+const resultEl = document.getElementById("result");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const cameraSelect = document.getElementById("cameraSelect");
 
-  const $ = (id) => document.getElementById(id);
+let items = new Map();
+let codeReader = null;
+let stream = null;
 
-  const videoEl = $("video");
-  const snapCanvas = $("snapCanvas");
-  const startBtn = $("startBtn");
-  const stopBtn = $("stopBtn");
-  const snapBtn = $("snapBtn");
-  const focusBtn = $("focusBtn");
-  const torchBtn = $("torchBtn");
-  const cameraSelect = $("cameraSelect");
-  const reloadDbBtn = $("reloadDbBtn");
+async function loadItems(){
+  const res = await fetch("./items.json",{cache:"no-store"});
+  const json = await res.json();
+  items = new Map(json.map(i=>[String(i.barcode),i]));
+}
 
-  const manualInput = $("manualInput");
-  const manualBtn = $("manualBtn");
-  const qtyInput = $("qtyInput");
-
-  const exportBtn = $("exportBtn");
-  const clearLocalBtn = $("clearLocalBtn");
-  const localCountEl = $("localCount");
-
-  const tagEl = $("tag");
-  const lastBarcodeEl = $("lastBarcode");
-  const lastTimeEl = $("lastTime");
-  const lastModeEl = $("lastMode");
-  const lastEngineEl = $("lastEngine");
-
-  const statusPill = $("statusPill");
-  const statusText = $("statusText");
-  const debugEl = $("debug");
-
-  // DB
-  let baseMap = new Map();
-  let localDb = [];
-  let localMap = new Map();
-  let mergedMap = new Map();
-
-  // Camera
-  let stream = null;
-  let track = null;
-  let torchOn = false;
-
-  // Scan engines
-  let detector = null;  // BarcodeDetector (preferred)
-  let zxingReader = null; // ZXing fallback
-  let liveTimer = null;
-
-  // Offscreen work canvas
-  const workCanvas = document.createElement("canvas");
-  const workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
-
-  // Throttle
-  let lastAcceptedTs = 0;
-  let lastAcceptedCode = "";
-
-  function log(msg) {
-    debugEl.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + debugEl.textContent;
-  }
-
-  function setStatus(kind, text) {
-    statusText.textContent = text;
-    const dot = statusPill.querySelector("span");
-    dot.className = kind;
-    dot.textContent = "●";
-  }
-
-  window.addEventListener("error", (e) => {
-    log("JS ERROR: " + (e.message || e.error));
-    setStatus("bad", "JavaScript error");
-  });
-  window.addEventListener("unhandledrejection", (e) => {
-    log("PROMISE ERROR: " + (e.reason?.message || e.reason));
-    setStatus("bad", "Promise error");
-  });
-
-  function safeParseJson(text) { try { return JSON.parse(text); } catch { return null; } }
-
-  function loadLocalDb() {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    const parsed = raw ? safeParseJson(raw) : null;
-    localDb = Array.isArray(parsed) ? parsed : [];
-    localMap = new Map();
-    for (const item of localDb) if (item?.barcode) localMap.set(String(item.barcode), item);
-    localCountEl.textContent = String(localMap.size);
-  }
-
-  function saveLocalDb() {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(localDb, null, 2));
-    loadLocalDb();
-    rebuildMerged();
-  }
-
-  function rebuildMerged() {
-    mergedMap = new Map(baseMap);
-    for (const [k, v] of localMap.entries()) mergedMap.set(k, v);
-  }
-
-  async function loadBaseDb() {
-    setStatus("warn", "Loading DB…");
-    log("Fetching items.json…");
-    try {
-      const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
-      log(`items.json status: ${res.status}`);
-      if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-      const json = await res.json();
-
-      baseMap = new Map();
-      for (const item of (Array.isArray(json) ? json : [])) {
-        if (item?.barcode) baseMap.set(String(item.barcode), item);
-      }
-      rebuildMerged();
-      setStatus("ok", `DB loaded (repo: ${baseMap.size}, local: ${localMap.size})`);
-    } catch (e) {
-      rebuildMerged();
-      setStatus("bad", "DB load failed (scanner still works)");
-      log("DB load failed: " + (e.message || e));
-    }
-  }
-
-  function money(n) {
-    const v = Number(n);
-    if (!Number.isFinite(v)) return "—";
-    return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
-  }
-
-  function normalizeBarcode(raw) {
-    const text = String(raw || "").trim();
-    if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1); // UPC-A sometimes
-    return text;
-  }
-
-  function escapeHtml(str) {
-    return String(str)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  function setLastScan(code, mode, engine) {
-    lastBarcodeEl.textContent = code || "—";
-    lastTimeEl.textContent = new Date().toLocaleString();
-    lastModeEl.textContent = mode || "—";
-    lastEngineEl.textContent = engine || "—";
-  }
-
-  function renderFound(item, barcode, qty) {
-    const q = Math.max(1, parseInt(qty, 10) || 1);
-    const unit = Number(item.price);
-    const total = Number.isFinite(unit) ? unit * q : null;
-
-    tagEl.innerHTML = `
-      <div class="muted">${item.department ? escapeHtml(item.department) : "Item"}</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.15;">${escapeHtml(item.name || "Unnamed item")}</div>
-      <div class="price">${money(item.price)}</div>
-
-      <div class="kvs">
-        <div class="kv"><span>Barcode</span><span class="mono">${escapeHtml(barcode)}</span></div>
-        ${item.location ? `<div class="kv"><span>Location</span><span>${escapeHtml(item.location)}</span></div>` : ""}
-        <div class="kv"><span>Qty</span><span>${q}</span></div>
-        ${total !== null ? `<div class="kv"><span>Total</span><span>${money(total)}</span></div>` : ""}
-      </div>
-
-      ${item.note ? `<div class="muted">Note: ${escapeHtml(item.note)}</div>` : ""}
-      <div class="muted small">Source: ${localMap.has(String(barcode)) ? "Local" : "Repo items.json"}</div>
+function showItem(barcode){
+  const item = items.get(barcode);
+  if(item){
+    resultEl.innerHTML = `
+      <div class="price">$${item.price}</div>
+      <div><b>${item.name}</b></div>
+      <div class="muted">${item.department || ""}</div>
+    `;
+  }else{
+    resultEl.innerHTML = `
+      <b>Unknown barcode</b><br>
+      <code>${barcode}</code>
     `;
   }
+}
 
-  function upsertLocalItem(item) {
-    const bc = String(item.barcode);
-    const idx = localDb.findIndex(x => x && String(x.barcode) === bc);
-    if (idx >= 0) localDb[idx] = item;
-    else localDb.push(item);
-    saveLocalDb();
-  }
+async function start(){
+  await loadItems();
 
-  function renderAddForm(barcode) {
-    const existing = localMap.get(String(barcode)) || null;
+  codeReader = new ZXing.BrowserMultiFormatReader();
 
-    tagEl.innerHTML = `
-      <div class="muted">Unknown barcode</div>
-      <div style="font-size:18px; font-weight:900;" class="mono">${escapeHtml(barcode)}</div>
-      <div class="divider"></div>
-
-      <label class="muted">Name</label>
-      <input id="f_name" placeholder="Item name" value="${existing?.name ? escapeHtml(existing.name) : ""}"/>
-
-      <label class="muted">Department</label>
-      <input id="f_dept" placeholder="Department" value="${existing?.department ? escapeHtml(existing.department) : ""}"/>
-
-      <label class="muted">Price (USD)</label>
-      <input id="f_price" type="number" step="0.01" min="0" placeholder="10.00" value="${Number.isFinite(Number(existing?.price)) ? Number(existing.price) : ""}"/>
-
-      <label class="muted">Location (optional)</label>
-      <input id="f_loc" placeholder="Behind Counter" value="${existing?.location ? escapeHtml(existing.location) : ""}"/>
-
-      <label class="muted">Note (optional)</label>
-      <input id="f_note" placeholder="Any notes" value="${existing?.note ? escapeHtml(existing.note) : ""}"/>
-
-      <div class="row" style="margin-top:10px;">
-        <button id="saveItemBtn">Save entry</button>
-      </div>
-    `;
-
-    $("saveItemBtn").onclick = () => {
-      const name = $("f_name").value.trim();
-      const dept = $("f_dept").value.trim();
-      const price = Number($("f_price").value);
-      const loc = $("f_loc").value.trim();
-      const note = $("f_note").value.trim();
-
-      if (!name) return alert("Name is required.");
-      if (!dept) return alert("Department is required.");
-      if (!Number.isFinite(price)) return alert("Price must be a number.");
-
-      const item = {
-        barcode: String(barcode),
-        name,
-        department: dept,
-        price: Math.round(price * 100) / 100,
-        ...(loc ? { location: loc } : {}),
-        ...(note ? { note } : {}),
-        updated_at: new Date().toISOString()
-      };
-
-      upsertLocalItem(item);
-      handleBarcode(barcode, "manual", "local");
-    };
-  }
-
-  function handleBarcode(rawCode, mode, engine) {
-    const code = normalizeBarcode(rawCode);
-    if (!code) return;
-
-    const now = Date.now();
-    if (code === lastAcceptedCode && (now - lastAcceptedTs) < ACCEPT_SAME_MS) return;
-    lastAcceptedCode = code;
-    lastAcceptedTs = now;
-
-    setLastScan(code, mode, engine);
-
-    const item = mergedMap.get(String(code));
-    if (item) renderFound(item, code, qtyInput.value);
-    else renderAddForm(code);
-  }
-
-  function facingMode() {
-    return cameraSelect.value === "front" ? "user" : "environment";
-  }
-
-  function ensureEngines() {
-    // Preferred: native BarcodeDetector
-    if ("BarcodeDetector" in window) {
-      try {
-        // iOS typically supports some subset; passing a broad list is OK (unsupported ones are ignored in many builds)
-        detector = new BarcodeDetector({
-          formats: [
-            "ean_13","ean_8","upc_a","upc_e",
-            "code_128","code_39","itf",
-            "qr_code","data_matrix","pdf417"
-          ]
-        });
-        log("BarcodeDetector: available ✅");
-      } catch (e) {
-        detector = null;
-        log("BarcodeDetector init failed: " + (e.message || e));
-      }
-    } else {
-      log("BarcodeDetector: not available ❌ (will use ZXing fallback)");
-    }
-
-    // Fallback: ZXing
-    if (!detector) {
-      if (!window.ZXing) throw new Error("ZXing not loaded");
-      if (!zxingReader) {
-        const hints = new Map();
-        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-          ZXing.BarcodeFormat.EAN_13,
-          ZXing.BarcodeFormat.EAN_8,
-          ZXing.BarcodeFormat.UPC_A,
-          ZXing.BarcodeFormat.UPC_E,
-          ZXing.BarcodeFormat.ITF,
-          ZXing.BarcodeFormat.CODE_128,
-          ZXing.BarcodeFormat.CODE_39,
-          ZXing.BarcodeFormat.CODE_93,
-          ZXing.BarcodeFormat.QR_CODE,
-          ZXing.BarcodeFormat.DATA_MATRIX,
-          ZXing.BarcodeFormat.PDF_417
-        ]);
-        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-        zxingReader = new ZXing.BrowserMultiFormatReader(hints, 200);
-        log("ZXing fallback: ready ✅");
-      }
-    }
-  }
-
-  async function stopAll() {
-    setStatus("warn", "Stopped");
-    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
-
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-      track = null;
-    }
-    videoEl.srcObject = null;
-
-    torchOn = false;
-    torchBtn.disabled = true;
-
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    focusBtn.disabled = true;
-    snapBtn.disabled = true;
-
-    snapCanvas.style.display = "none";
-    log("Stopped.");
-  }
-
-  async function startCamera() {
-    await stopAll();
-
-    setStatus("warn", "Starting…");
-    ensureEngines();
-
-    log("Requesting camera: " + facingMode());
-    const constraints = {
-      audio: false,
-      video: {
-        facingMode: { ideal: facingMode() },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-      }
-    };
-
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoEl.srcObject = stream;
-    await videoEl.play();
-
-    track = stream.getVideoTracks()[0] || null;
-    log(`Video started: ${videoEl.videoWidth}x${videoEl.videoHeight}`);
-
-    // Torch support (often NOT exposed on iOS Safari)
-    torchBtn.disabled = true;
-    torchOn = false;
-    if (track?.getCapabilities) {
-      const caps = track.getCapabilities();
-      if (caps && ("torch" in caps) && caps.torch === true) {
-        torchBtn.disabled = false;
-        log("Torch supported ✅");
-      } else {
-        log("Torch not exposed on this iPhone/Safari ❌");
-      }
-
-      // Best-effort autofocus
-      if (caps.focusMode && track.applyConstraints) {
-        try {
-          await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-          log("Focus: requested continuous");
-        } catch (e) {
-          log("Focus continuous failed: " + (e.message || e));
-        }
-      }
-    }
-
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    focusBtn.disabled = false;
-    snapBtn.disabled = false;
-
-    setStatus("ok", "Scanning…");
-    startLiveScanLoop();
-  }
-
-  function drawCenterCropToCanvas(targetCanvas, scaleW = 900, scaleH = null) {
-    const vw = videoEl.videoWidth;
-    const vh = videoEl.videoHeight;
-
-    // Center crop similar to overlay box
-    const cropW = Math.floor(vw * 0.78);
-    const cropH = Math.floor(vh * 0.34);
-    const sx = Math.floor((vw - cropW) / 2);
-    const sy = Math.floor((vh - cropH) / 2);
-
-    const outW = scaleW;
-    const outH = scaleH ?? Math.max(1, Math.floor(outW * (cropH / cropW)));
-
-    targetCanvas.width = outW;
-    targetCanvas.height = outH;
-
-    const tctx = targetCanvas.getContext("2d", { willReadFrequently: true });
-    tctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
-  }
-
-  async function detectOnCanvasOnce(canvas, engineLabel) {
-    // 1) BarcodeDetector path
-    if (detector) {
-      const results = await detector.detect(canvas);
-      if (results && results.length) {
-        // Choose the first result (usually best)
-        const raw = results[0].rawValue || results[0].raw || "";
-        if (raw) return { code: raw, engine: engineLabel || "BarcodeDetector" };
-      }
-      return null;
-    }
-
-    // 2) ZXing fallback path
-    if (zxingReader) {
-      try {
-        const result = await zxingReader.decodeFromCanvas(canvas);
-        if (result) return { code: result.getText(), engine: engineLabel || "ZXing" };
-      } catch {
-        // NotFound is normal
-      } finally {
-        try { zxingReader.reset(); } catch {}
-      }
-    }
-    return null;
-  }
-
-  function startLiveScanLoop() {
-    if (liveTimer) clearInterval(liveTimer);
-
-    let tickCount = 0;
-
-    liveTimer = setInterval(async () => {
-      if (!videoEl.videoWidth || !videoEl.videoHeight) return;
-
-      drawCenterCropToCanvas(workCanvas, 1000);
-
-      try {
-        const hit = await detectOnCanvasOnce(workCanvas, detector ? "BarcodeDetector" : "ZXing");
-        if (hit?.code) {
-          handleBarcode(hit.code, "live", hit.engine);
-        }
-      } catch (e) {
-        // ignore
-      }
-
-      tickCount++;
-      if (tickCount % 20 === 0) {
-        log("Live scan running…");
-      }
-    }, LIVE_INTERVAL_MS);
-
-    log("Live scan loop started.");
-  }
-
-  async function snapAndScan() {
-    if (!videoEl.videoWidth || !videoEl.videoHeight) return;
-
-    // Snapshot crop bigger than live, higher res
-    const vw = videoEl.videoWidth;
-    const vh = videoEl.videoHeight;
-
-    const cropW = Math.floor(vw * 0.9);
-    const cropH = Math.floor(vh * 0.5);
-    const sx = Math.floor((vw - cropW) / 2);
-    const sy = Math.floor((vh - cropH) / 2);
-
-    const outW = 1800;
-    const outH = Math.max(1, Math.floor(outW * (cropH / cropW)));
-
-    snapCanvas.width = outW;
-    snapCanvas.height = outH;
-
-    const ctx = snapCanvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
-    snapCanvas.style.display = "block";
-
-    log("Snap captured. Scanning snapshot…");
-
-    // Try multiple rotations (iPhone orientation issues)
-    const rotations = [0, 90, 180, 270];
-
-    for (const deg of rotations) {
-      const tmp = document.createElement("canvas");
-      const tctx = tmp.getContext("2d", { willReadFrequently: true });
-
-      if (deg === 0) {
-        tmp.width = snapCanvas.width;
-        tmp.height = snapCanvas.height;
-        tctx.drawImage(snapCanvas, 0, 0);
-      } else {
-        tmp.width = deg % 180 === 0 ? snapCanvas.width : snapCanvas.height;
-        tmp.height = deg % 180 === 0 ? snapCanvas.height : snapCanvas.width;
-        tctx.translate(tmp.width / 2, tmp.height / 2);
-        tctx.rotate(deg * Math.PI / 180);
-        tctx.drawImage(snapCanvas, -snapCanvas.width / 2, -snapCanvas.height / 2);
-        tctx.setTransform(1,0,0,1,0,0);
-      }
-
-      const hit = await detectOnCanvasOnce(tmp, detector ? "BarcodeDetector" : "ZXing");
-      if (hit?.code) {
-        log(`Snap detected at rotation ${deg}°: ${hit.code}`);
-        handleBarcode(hit.code, "snap", hit.engine);
-        return;
-      }
-    }
-
-    alert("No barcode detected. Try: avoid glare, fill the box, and keep the barcode flat.");
-    log("Snap: no barcode found.");
-  }
-
-  async function refocus() {
-    if (!stream) return;
-    setStatus("warn", "Refocusing…");
-    log("Focus pressed (restart camera).");
-    await startCamera();
-  }
-
-  async function toggleTorch() {
-    if (!track?.applyConstraints || !track?.getCapabilities) return;
-
-    const caps = track.getCapabilities();
-    if (!caps || !("torch" in caps) || caps.torch !== true) {
-      torchBtn.disabled = true;
-      log("Torch not supported on this device/browser.");
-      return;
-    }
-
-    try {
-      torchOn = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
-      log("Torch: " + (torchOn ? "ON" : "OFF"));
-    } catch (e) {
-      torchOn = false;
-      torchBtn.disabled = true;
-      log("Torch failed: " + (e.message || e));
-    }
-  }
-
-  // Manual lookup
-  manualBtn.addEventListener("click", () => {
-    const code = manualInput.value.trim();
-    if (!code) return;
-    log("Manual lookup: " + code);
-    handleBarcode(code, "manual", "manual");
-  });
-  manualInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") manualBtn.click();
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:cameraSelect.value}
   });
 
-  // DB controls
-  reloadDbBtn.addEventListener("click", loadBaseDb);
+  video.srcObject = stream;
+  await video.play();
 
-  // Export + clear local
-  function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
 
-  function exportMergedDb() {
-    const out = Array.from(mergedMap.values());
-    out.sort((a, b) => String(a.barcode).localeCompare(String(b.barcode)));
-    downloadText("items.json", JSON.stringify(out, null, 2));
-  }
-
-  exportBtn.addEventListener("click", () => {
-    log("Export merged items.json");
-    exportMergedDb();
+  codeReader.decodeFromVideoElement(video,(result,err)=>{
+    if(result){
+      const code = result.getText();
+      showItem(code);
+    }
   });
+}
 
-  clearLocalBtn.addEventListener("click", () => {
-    const ok = confirm("Clear all locally saved items? This does NOT change items.json in GitHub.");
-    if (!ok) return;
-    localStorage.removeItem(LOCAL_KEY);
-    loadLocalDb();
-    rebuildMerged();
-    setStatus("ok", `Local cleared (repo: ${baseMap.size}, local: 0)`);
-    log("Local DB cleared.");
-  });
+function stop(){
+  if(codeReader) codeReader.reset();
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+}
 
-  // Camera controls
-  startBtn.addEventListener("click", () => startCamera().catch(e => {
-    log("Start failed: " + (e.message || e));
-    setStatus("bad", "Start failed");
-  }));
-
-  stopBtn.addEventListener("click", () => stopAll().catch(()=>{}));
-  focusBtn.addEventListener("click", () => refocus().catch(()=>{}));
-  torchBtn.addEventListener("click", () => toggleTorch().catch(()=>{}));
-  snapBtn.addEventListener("click", () => snapAndScan().catch(e => {
-    log("Snap failed: " + (e.message || e));
-  }));
-
-  cameraSelect.addEventListener("change", async () => {
-    if (!stream) return;
-    log("Camera switched to: " + cameraSelect.value);
-    await startCamera();
-  });
-
-  // INIT
-  loadLocalDb();
-  loadBaseDb();
-  setStatus("warn", "Ready");
-  log("Loaded. Press Start.");
+startBtn.onclick = start;
+stopBtn.onclick = stop;
 </script>
+
 </body>
 </html>
