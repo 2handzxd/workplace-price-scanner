@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Workplace Price Scanner</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #0b0d12; color: #e8eaf0; }
+    header { padding: 16px 18px; border-bottom: 1px solid #22283a; background: #0f1320; }
+    header h1 { margin: 0; font-size: 18px; }
+    main { max-width: 980px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: #11172a; border: 1px solid #1f2740; border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button {
+      background: #2b67f6; color: #fff; border: 0; padding: 10px 12px;
+      border-radius: 10px; cursor: pointer; font-weight: 600;
+    }
+    button.secondary { background: #25304f; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    input, select {
+      background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
+      padding: 10px 12px; border-radius: 10px; width: 100%;
+    }
+
+    #videoWrap { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid #223055; background: #070a12; }
+    video { width: 100%; height: auto; display: block; }
+    #overlay {
+      position: absolute; inset: 0; pointer-events: none;
+      display: grid; place-items: center;
+    }
+    #overlay .box {
+      width: min(72%, 520px);
+      aspect-ratio: 2.2 / 1;
+      border: 3px solid rgba(43,103,246,0.9);
+      border-radius: 14px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+    }
+
+    .tag {
+      display: grid; gap: 10px;
+      background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px;
+    }
+    .price { font-size: 42px; font-weight: 800; letter-spacing: 0.3px; }
+    .muted { color: #aab3cf; font-size: 13px; }
+    .kvs { display: grid; gap: 6px; }
+    .kv { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #1a2342; padding: 6px 0; }
+    .kv span:first-child { color: #aab3cf; }
+
+    .pill { display: inline-flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 999px; background: #0b1020; border: 1px solid #243056; }
+    .ok { color: #67f69b; }
+    .warn { color: #ffcc66; }
+    .bad { color: #ff6b6b; }
+    code { background: #0b1020; padding: 2px 6px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Workplace Price Scanner</h1>
+</header>
+
+<main>
+  <div class="grid">
+    <section class="card">
+      <div class="row" style="justify-content: space-between;">
+        <div class="pill" id="statusPill"><span class="warn">●</span><span id="statusText">Ready</span></div>
+        <div class="row" style="min-width: 320px;">
+          <select id="cameraSelect" aria-label="Camera selection"></select>
+          <button class="secondary" id="reloadDbBtn" title="Reload items.json">Reload DB</button>
+        </div>
+      </div>
+
+      <div style="height: 12px;"></div>
+
+      <div id="videoWrap">
+        <video id="video" playsinline></video>
+        <div id="overlay"><div class="box"></div></div>
+      </div>
+
+      <div style="height: 12px;"></div>
+
+      <div class="row">
+        <button id="startBtn">Start Camera</button>
+        <button class="secondary" id="stopBtn" disabled>Stop</button>
+        <button class="secondary" id="torchBtn" disabled>Toggle Torch</button>
+      </div>
+
+      <div style="height: 14px;"></div>
+
+      <div class="row">
+        <div style="flex: 1; min-width: 260px;">
+          <label class="muted" for="manualInput">Manual barcode lookup</label>
+          <input id="manualInput" placeholder="Type / paste a barcode (UPC/EAN/Code128)..." />
+        </div>
+        <div style="width: 180px;">
+          <label class="muted" for="qtyInput">Qty</label>
+          <input id="qtyInput" type="number" min="1" value="1" />
+        </div>
+        <div style="width: 180px; align-self: end;">
+          <button id="manualBtn" class="secondary" style="width: 100%;">Lookup</button>
+        </div>
+      </div>
+
+      <p class="muted" style="margin: 12px 0 0;">
+        Tip: Best results with good lighting and holding the barcode inside the blue box.
+      </p>
+    </section>
+
+    <aside class="card">
+      <h2 style="margin: 0 0 10px; font-size: 16px;">Price Tag</h2>
+
+      <div class="tag" id="tag">
+        <div class="muted">Scan an item to show its price tag.</div>
+      </div>
+
+      <div style="height: 14px;"></div>
+
+      <h3 style="margin: 0 0 8px; font-size: 14px;">Last Scan</h3>
+      <div class="kvs">
+        <div class="kv"><span>Barcode</span><span id="lastBarcode">—</span></div>
+        <div class="kv"><span>Time</span><span id="lastTime">—</span></div>
+      </div>
+
+      <div style="height: 14px;"></div>
+
+      <h3 style="margin: 0 0 8px; font-size: 14px;">How it works</h3>
+      <p class="muted" style="margin: 0;">
+        This page scans barcodes and looks up the result in <code>items.json</code> in your repo.
+        Update <code>items.json</code> anytime to change prices.
+      </p>
+    </aside>
+  </div>
+</main>
+
+<!-- ZXing barcode scanning library -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/index.min.js"></script>
+
+<script>
+  // ---------- Config ----------
+  const ITEMS_DB_URL = "./items.json"; // stored in your GitHub Pages repo
+  const SCAN_THROTTLE_MS = 1200;       // reduce duplicates
+  // ---------------------------
+
+  const videoEl = document.getElementById("video");
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const torchBtn = document.getElementById("torchBtn");
+  const cameraSelect = document.getElementById("cameraSelect");
+  const statusText = document.getElementById("statusText");
+  const statusPill = document.getElementById("statusPill");
+  const reloadDbBtn = document.getElementById("reloadDbBtn");
+
+  const manualInput = document.getElementById("manualInput");
+  const manualBtn = document.getElementById("manualBtn");
+  const qtyInput = document.getElementById("qtyInput");
+
+  const tag = document.getElementById("tag");
+  const lastBarcode = document.getElementById("lastBarcode");
+  const lastTime = document.getElementById("lastTime");
+
+  let itemsDb = [];
+  let itemsMap = new Map(); // barcode -> item
+  let codeReader = null;
+  let currentStream = null;
+  let lastScanTs = 0;
+  let lastValue = "";
+  let torchOn = false;
+
+  function setStatus(kind, text) {
+    statusText.textContent = text;
+    const dot = statusPill.querySelector("span");
+    dot.className = kind;
+    dot.textContent = "●";
+  }
+
+  async function loadDb() {
+    setStatus("warn", "Loading DB…");
+    try {
+      const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`DB fetch failed: ${res.status}`);
+      itemsDb = await res.json();
+
+      itemsMap = new Map();
+      for (const item of itemsDb) {
+        if (item && item.barcode) itemsMap.set(String(item.barcode), item);
+      }
+      setStatus("ok", `DB loaded (${itemsMap.size} items)`);
+    } catch (e) {
+      console.error(e);
+      setStatus("bad", "DB load error");
+      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Check your repo and Pages path.</div>`;
+    }
+  }
+
+  function money(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+
+  function renderTag(barcode, qty = 1) {
+    const key = String(barcode || "");
+    const item = itemsMap.get(key);
+
+    const now = new Date();
+    lastBarcode.textContent = key || "—";
+    lastTime.textContent = now.toLocaleString();
+
+    const q = Math.max(1, parseInt(qty, 10) || 1);
+
+    if (!item) {
+      tag.innerHTML = `
+        <div class="muted">No match found for barcode:</div>
+        <div style="font-size:18px; font-weight:700;">${key || "—"}</div>
+        <div class="muted">Update <code>items.json</code> to add it.</div>
+      `;
+      return;
+    }
+
+    const unitPrice = Number(item.price);
+    const total = Number.isFinite(unitPrice) ? unitPrice * q : null;
+
+    tag.innerHTML = `
+      <div class="muted">${item.department ? item.department : "Item"}</div>
+      <div style="font-size:22px; font-weight:800; line-height:1.15;">${item.name || "Unnamed item"}</div>
+
+      <div class="price">${money(item.price)}</div>
+
+      <div class="kvs">
+        <div class="kv"><span>Barcode</span><span>${key}</span></div>
+        ${item.sku ? `<div class="kv"><span>SKU</span><span>${item.sku}</span></div>` : ""}
+        ${item.location ? `<div class="kv"><span>Location</span><span>${item.location}</span></div>` : ""}
+        <div class="kv"><span>Qty</span><span>${q}</span></div>
+        ${total !== null ? `<div class="kv"><span>Total</span><span>${money(total)}</span></div>` : ""}
+      </div>
+
+      ${item.note ? `<div class="muted">Note: ${item.note}</div>` : ""}
+    `;
+  }
+
+  async function listCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter(d => d.kind === "videoinput");
+
+    cameraSelect.innerHTML = "";
+    videoInputs.forEach((d, idx) => {
+      const opt = document.createElement("option");
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Camera ${idx + 1}`;
+      cameraSelect.appendChild(opt);
+    });
+
+    return videoInputs;
+  }
+
+  async function startCamera(deviceId) {
+    if (!window.ZXingBrowser) {
+      setStatus("bad", "Scanner library missing");
+      return;
+    }
+
+    setStatus("warn", "Starting camera…");
+
+    if (currentStream) stopCamera();
+
+    const constraints = {
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "environment" },
+      audio: false
+    };
+
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = currentStream;
+    await videoEl.play();
+
+    // Torch support check
+    torchBtn.disabled = true;
+    torchOn = false;
+    try {
+      const track = currentStream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.torch) {
+        torchBtn.disabled = false;
+      }
+    } catch {}
+
+    codeReader = codeReader || new ZXingBrowser.BrowserMultiFormatReader();
+
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    setStatus("ok", "Scanning…");
+
+    // Decode loop
+    codeReader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
+      if (result) {
+        const text = result.getText();
+        const now = Date.now();
+
+        // Throttle duplicates
+        if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
+
+        lastValue = text;
+        lastScanTs = now;
+
+        renderTag(text, qtyInput.value);
+      }
+    });
+  }
+
+  function stopCamera() {
+    try {
+      if (codeReader) codeReader.reset();
+    } catch {}
+
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+    videoEl.srcObject = null;
+
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    torchBtn.disabled = true;
+    torchOn = false;
+
+    setStatus("warn", "Stopped");
+  }
+
+  async function toggleTorch() {
+    if (!currentStream) return;
+    const track = currentStream.getVideoTracks()[0];
+    if (!track || !track.applyConstraints) return;
+
+    try {
+      torchOn = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+    } catch (e) {
+      console.warn("Torch not supported:", e);
+    }
+  }
+
+  // ---------- Events ----------
+  startBtn.addEventListener("click", async () => {
+    try {
+      // iOS/Safari sometimes needs permission before labels appear
+      await loadDb();
+      await listCameras();
+      await startCamera(cameraSelect.value);
+    } catch (e) {
+      console.error(e);
+      setStatus("bad", "Camera error");
+      tag.innerHTML = `<div class="muted">Could not start camera. Make sure you allowed camera access.</div>`;
+    }
+  });
+
+  stopBtn.addEventListener("click", stopCamera);
+  torchBtn.addEventListener("click", toggleTorch);
+
+  cameraSelect.addEventListener("change", async () => {
+    if (!currentStream) return;
+    await startCamera(cameraSelect.value);
+  });
+
+  reloadDbBtn.addEventListener("click", loadDb);
+
+  manualBtn.addEventListener("click", () => {
+    const code = manualInput.value.trim();
+    if (code) renderTag(code, qtyInput.value);
+  });
+
+  manualInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") manualBtn.click();
+  });
+
+  // Initial DB load (no camera needed)
+  loadDb();
+</script>
+</body>
+</html>
