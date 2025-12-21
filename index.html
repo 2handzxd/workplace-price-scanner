@@ -22,12 +22,11 @@
     button.secondary { background: #25304f; }
     button.danger { background: #7a2230; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    input, select, textarea {
+    input, select {
       background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
       padding: 10px 12px; border-radius: 10px; width: 100%;
       box-sizing: border-box;
     }
-    textarea { min-height: 110px; resize: vertical; }
 
     #videoWrap { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid #223055; background: #070a12; }
     video { width: 100%; height: auto; display: block; }
@@ -42,11 +41,19 @@
       border-radius: 14px;
       box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
     }
-
-    .tag {
-      display: grid; gap: 10px;
-      background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px;
+    #hint {
+      position: absolute;
+      left: 12px; right: 12px; bottom: 12px;
+      background: rgba(11,16,32,0.75);
+      border: 1px solid rgba(36,48,86,0.8);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #cfd6ee;
+      backdrop-filter: blur(6px);
     }
+
+    .tag { display: grid; gap: 10px; background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px; }
     .price { font-size: 42px; font-weight: 900; letter-spacing: 0.3px; }
     .muted { color: #aab3cf; font-size: 13px; }
     .kvs { display: grid; gap: 6px; }
@@ -58,10 +65,8 @@
     .warn { color: #ffcc66; }
     .bad { color: #ff6b6b; }
     code { background: #0b1020; padding: 2px 6px; border-radius: 8px; border: 1px solid #243056; }
-
-    .divider { height: 1px; background: #1f2740; margin: 12px 0; }
-    .small { font-size: 12px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .divider { height: 1px; background: #1f2740; margin: 12px 0; }
   </style>
 </head>
 <body>
@@ -76,22 +81,23 @@
         <div class="pill" id="statusPill"><span class="warn">●</span><span id="statusText">Ready</span></div>
         <div class="row" style="min-width: 320px;">
           <select id="cameraSelect" aria-label="Camera selection"></select>
-          <button class="secondary" id="reloadDbBtn" title="Reload items.json">Reload DB</button>
+          <button class="secondary" id="reloadDbBtn">Reload DB</button>
         </div>
       </div>
 
       <div style="height: 12px;"></div>
 
       <div id="videoWrap">
-        <!-- iPhone: playsinline + muted helps keep video inline and allows playback after user gesture -->
         <video id="video" playsinline muted></video>
         <div id="overlay"><div class="box"></div></div>
+        <div id="hint">Tip: hold 6–10 inches away, avoid glare, and keep steady for a second to let autofocus lock.</div>
       </div>
 
       <div style="height: 12px;"></div>
 
       <div class="row">
         <button id="startBtn">Start Camera</button>
+        <button class="secondary" id="refocusBtn" disabled>Tap to Refocus</button>
         <button class="secondary" id="stopBtn" disabled>Stop</button>
       </div>
 
@@ -109,26 +115,6 @@
         <div style="width: 180px; align-self: end;">
           <button id="manualBtn" class="secondary" style="width: 100%;">Lookup</button>
         </div>
-      </div>
-
-      <p class="muted" style="margin: 12px 0 0;">
-        iPhone tip: good lighting + hold 6–10 inches away + avoid glare.
-      </p>
-
-      <div class="divider"></div>
-
-      <h3 style="margin: 0 0 8px; font-size: 14px;">Database (no backend)</h3>
-      <p class="muted" style="margin: 0 0 10px;">
-        GitHub Pages is static, so this app can’t write to GitHub directly. When you scan an unknown barcode,
-        it lets you add an item locally, then <b>download an updated <code>items.json</code></b> to commit back to the repo.
-      </p>
-
-      <div class="row">
-        <button class="secondary" id="exportBtn">Download updated items.json</button>
-        <button class="danger" id="clearLocalBtn">Clear local saved items</button>
-      </div>
-      <div class="muted small" style="margin-top:8px;">
-        Local changes saved: <span id="localCount">0</span> item(s)
       </div>
     </section>
 
@@ -149,26 +135,23 @@
 
       <div style="height: 14px;"></div>
 
-      <p class="muted" style="margin: 0;">
-        Loads from <code>items.json</code> in the repo and overlays your local additions.
+      <p class="muted" style="margin:0;">
+        Loads prices from <code>items.json</code> in your repo.
       </p>
     </aside>
   </div>
 </main>
 
-<!-- ✅ Reliable ZXing UMD build (window.ZXing) -->
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <script>
-  // ------------------ Config ------------------
   const ITEMS_DB_URL = "./items.json";
   const SCAN_THROTTLE_MS = 1200;
-  const LOCAL_KEY = "wps_local_items_v2";
-  // -------------------------------------------
 
   const videoEl = document.getElementById("video");
   const startBtn = document.getElementById("startBtn");
   const stopBtn = document.getElementById("stopBtn");
+  const refocusBtn = document.getElementById("refocusBtn");
   const cameraSelect = document.getElementById("cameraSelect");
   const statusText = document.getElementById("statusText");
   const statusPill = document.getElementById("statusPill");
@@ -182,20 +165,13 @@
   const lastBarcode = document.getElementById("lastBarcode");
   const lastTime = document.getElementById("lastTime");
 
-  const exportBtn = document.getElementById("exportBtn");
-  const clearLocalBtn = document.getElementById("clearLocalBtn");
-  const localCountEl = document.getElementById("localCount");
-
-  let baseDb = [];
-  let baseMap = new Map();   // items.json
-  let localDb = [];          // locally added/edited
-  let localMap = new Map();  // barcode -> item
-  let mergedMap = new Map(); // base + local overlay
-
+  let itemsMap = new Map();
   let codeReader = null;
+  let currentStream = null;
+  let activeDeviceId = null;
+
   let lastScanTs = 0;
   let lastValue = "";
-  let activeDeviceId = null;
 
   function setStatus(kind, text) {
     statusText.textContent = text;
@@ -204,52 +180,22 @@
     dot.textContent = "●";
   }
 
-  function safeParseJson(text) {
-    try { return JSON.parse(text); } catch { return null; }
-  }
-
-  function loadLocalDb() {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    const parsed = raw ? safeParseJson(raw) : null;
-    localDb = Array.isArray(parsed) ? parsed : [];
-    localMap = new Map();
-    for (const item of localDb) {
-      if (item && item.barcode) localMap.set(String(item.barcode), item);
-    }
-    localCountEl.textContent = String(localMap.size);
-  }
-
-  function saveLocalDb() {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(localDb, null, 2));
-    loadLocalDb();
-    rebuildMergedMap();
-  }
-
-  function rebuildMergedMap() {
-    mergedMap = new Map(baseMap);
-    for (const [k, v] of localMap.entries()) mergedMap.set(k, v);
-  }
-
-  async function loadBaseDb() {
+  async function loadDb() {
     setStatus("warn", "Loading DB…");
     try {
       const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`DB fetch failed: ${res.status}`);
-      const json = await res.json();
-      baseDb = Array.isArray(json) ? json : [];
+      const arr = await res.json();
 
-      baseMap = new Map();
-      for (const item of baseDb) {
-        if (item && item.barcode) baseMap.set(String(item.barcode), item);
+      itemsMap = new Map();
+      for (const item of (Array.isArray(arr) ? arr : [])) {
+        if (item && item.barcode) itemsMap.set(String(item.barcode), item);
       }
-
-      rebuildMergedMap();
-      setStatus("ok", `DB loaded (repo: ${baseMap.size}, local: ${localMap.size})`);
+      setStatus("ok", `DB loaded (${itemsMap.size} items)`);
     } catch (e) {
       console.error(e);
-      rebuildMergedMap();
       setStatus("bad", "DB load error");
-      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Make sure it exists next to <code>index.html</code>.</div>`;
+      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>.</div>`;
     }
   }
 
@@ -259,165 +205,52 @@
     return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
 
-  // iPhone/ZXing often scans UPC-A as EAN-13 with a leading 0
   function normalizeBarcode(raw) {
     const text = String(raw || "").trim();
-    if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1);
+    if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1); // UPC-A as EAN-13
     return text;
   }
 
-  function nowStamp() {
-    return new Date().toLocaleString();
-  }
+  function renderTag(barcode, qty = 1) {
+    const key = normalizeBarcode(barcode);
 
-  function escapeHtml(str) {
-    return String(str)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
+    lastBarcode.textContent = key || "—";
+    lastTime.textContent = new Date().toLocaleString();
 
-  function renderTagForFound(item, barcode, qty) {
+    const item = itemsMap.get(String(key));
     const q = Math.max(1, parseInt(qty, 10) || 1);
-    const unitPrice = Number(item.price);
-    const total = Number.isFinite(unitPrice) ? unitPrice * q : null;
+
+    if (!item) {
+      tag.innerHTML = `
+        <div class="muted">No match found for barcode:</div>
+        <div style="font-size:18px; font-weight:900;" class="mono">${key || "—"}</div>
+        <div class="muted">Add it to <code>items.json</code>.</div>
+      `;
+      return;
+    }
+
+    const unit = Number(item.price);
+    const total = Number.isFinite(unit) ? unit * q : null;
 
     tag.innerHTML = `
       <div class="muted">${item.department ? item.department : "Item"}</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.15;">${escapeHtml(item.name || "Unnamed item")}</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.15;">${item.name || "Unnamed item"}</div>
 
       <div class="price">${money(item.price)}</div>
 
       <div class="kvs">
-        <div class="kv"><span>Barcode</span><span class="mono">${escapeHtml(barcode)}</span></div>
-        ${item.sku ? `<div class="kv"><span>SKU</span><span class="mono">${escapeHtml(item.sku)}</span></div>` : ""}
-        ${item.location ? `<div class="kv"><span>Location</span><span>${escapeHtml(item.location)}</span></div>` : ""}
+        <div class="kv"><span>Barcode</span><span class="mono">${key}</span></div>
+        ${item.sku ? `<div class="kv"><span>SKU</span><span class="mono">${item.sku}</span></div>` : ""}
+        ${item.location ? `<div class="kv"><span>Location</span><span>${item.location}</span></div>` : ""}
         <div class="kv"><span>Qty</span><span>${q}</span></div>
         ${total !== null ? `<div class="kv"><span>Total</span><span>${money(total)}</span></div>` : ""}
       </div>
 
-      ${item.note ? `<div class="muted">Note: ${escapeHtml(item.note)}</div>` : ""}
-      <div class="muted small">Source: ${localMap.has(String(barcode)) ? "Local (not yet committed)" : "Repo items.json"}</div>
+      ${item.note ? `<div class="muted">Note: ${item.note}</div>` : ""}
     `;
-  }
-
-  function upsertLocalItem(item) {
-    const bc = String(item.barcode);
-    const idx = localDb.findIndex(x => x && String(x.barcode) === bc);
-    if (idx >= 0) localDb[idx] = item;
-    else localDb.push(item);
-    saveLocalDb();
-  }
-
-  function renderAddForm(barcode) {
-    const existingLocal = localMap.get(String(barcode)) || null;
-
-    tag.innerHTML = `
-      <div class="muted">Unknown barcode</div>
-      <div style="font-size:18px; font-weight:900;" class="mono">${escapeHtml(barcode)}</div>
-
-      <div class="divider"></div>
-
-      <div class="muted">Add item details (saved locally in this browser):</div>
-
-      <label class="muted">Name</label>
-      <input id="f_name" placeholder="e.g., Paper Towels (2-pack)" value="${existingLocal?.name ? escapeHtml(existingLocal.name) : ""}"/>
-
-      <label class="muted">Price (USD)</label>
-      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 4.99" value="${Number.isFinite(Number(existingLocal?.price)) ? Number(existingLocal.price) : ""}"/>
-
-      <div class="row">
-        <div style="flex:1; min-width: 180px;">
-          <label class="muted">SKU (optional)</label>
-          <input id="f_sku" placeholder="e.g., A-1001" value="${existingLocal?.sku ? escapeHtml(existingLocal.sku) : ""}"/>
-        </div>
-        <div style="flex:1; min-width: 180px;">
-          <label class="muted">Department (optional)</label>
-          <input id="f_dept" placeholder="e.g., Supplies" value="${existingLocal?.department ? escapeHtml(existingLocal.department) : ""}"/>
-        </div>
-      </div>
-
-      <label class="muted">Location (optional)</label>
-      <input id="f_loc" placeholder="e.g., Aisle 3 / Bay 2" value="${existingLocal?.location ? escapeHtml(existingLocal.location) : ""}"/>
-
-      <label class="muted">Note (optional)</label>
-      <input id="f_note" placeholder="e.g., Medium size" value="${existingLocal?.note ? escapeHtml(existingLocal.note) : ""}"/>
-
-      <div class="row" style="margin-top: 10px;">
-        <button id="saveItemBtn">Save item</button>
-      </div>
-
-      <div class="muted small" style="margin-top:10px;">
-        After adding items, click <b>Download updated items.json</b> and commit it to GitHub.
-      </div>
-    `;
-
-    document.getElementById("saveItemBtn").onclick = () => {
-      const name = document.getElementById("f_name").value.trim();
-      const price = Number(document.getElementById("f_price").value);
-      const sku = document.getElementById("f_sku").value.trim();
-      const dept = document.getElementById("f_dept").value.trim();
-      const loc = document.getElementById("f_loc").value.trim();
-      const note = document.getElementById("f_note").value.trim();
-
-      if (!name) { alert("Name is required."); return; }
-      if (!Number.isFinite(price)) { alert("Price must be a number (e.g., 4.99)."); return; }
-
-      const item = {
-        barcode: String(barcode),
-        name,
-        price: Math.round(price * 100) / 100,
-        ...(sku ? { sku } : {}),
-        ...(dept ? { department: dept } : {}),
-        ...(loc ? { location: loc } : {}),
-        ...(note ? { note } : {}),
-        updated_at: new Date().toISOString()
-      };
-
-      upsertLocalItem(item);
-      renderTag(item.barcode, qtyInput.value);
-    };
-  }
-
-  function renderTag(barcode, qty = 1) {
-    const raw = String(barcode || "").trim();
-    const key = normalizeBarcode(raw);
-
-    lastBarcode.textContent = key || "—";
-    lastTime.textContent = nowStamp();
-
-    if (!key) {
-      tag.innerHTML = `<div class="muted">No barcode provided.</div>`;
-      return;
-    }
-
-    const item = mergedMap.get(String(key));
-    if (item) renderTagForFound(item, key, qty);
-    else renderAddForm(key);
-  }
-
-  function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function exportMergedDb() {
-    const out = Array.from(mergedMap.values());
-    out.sort((a, b) => String(a.barcode).localeCompare(String(b.barcode)));
-    downloadText("items.json", JSON.stringify(out, null, 2));
   }
 
   function buildReader() {
-    // Strong hints for iPhone reliability
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
       ZXing.BarcodeFormat.UPC_A,
@@ -429,8 +262,6 @@
       ZXing.BarcodeFormat.ITF
     ]);
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-    // 200ms between scans helps iPhone pick up frames without lag
     return new ZXing.BrowserMultiFormatReader(hints, 200);
   }
 
@@ -450,83 +281,133 @@
     return videoInputs;
   }
 
+  async function startStreamWithFocus(deviceId) {
+    // Stop previous stream
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+
+    // Best-effort constraints for iPhone autofocus / quality
+    const constraints = {
+      audio: false,
+      video: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        facingMode: deviceId ? undefined : { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    };
+
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = currentStream;
+    await videoEl.play();
+
+    // Best-effort continuous autofocus
+    const track = currentStream.getVideoTracks()[0];
+    if (track && track.getCapabilities && track.applyConstraints) {
+      const caps = track.getCapabilities();
+      // Some iOS versions expose focusMode; if so, request continuous
+      if (caps.focusMode) {
+        try {
+          await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+        } catch {}
+      }
+    }
+  }
+
   async function startScanner() {
     if (!window.ZXing) { setStatus("bad", "Scanner library missing"); return; }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus("bad", "Camera not supported"); return; }
 
     setStatus("warn", "Starting camera…");
 
-    // (Re)create reader each time (helps iOS)
+    // Build reader fresh (helps iOS)
     if (codeReader) { try { codeReader.reset(); } catch {} }
     codeReader = buildReader();
 
-    // Warm-up: request environment cam first (improves autofocus + permissions)
+    // Warm-up: request rear cam first so Safari picks environment camera + permissions
     const warm = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
     warm.getTracks().forEach(t => t.stop());
 
-    // After permission, device labels appear
     await listCameras().catch(() => {});
-
     activeDeviceId = cameraSelect.value || null;
+
+    // Start our own stream with focus-friendly constraints
+    await startStreamWithFocus(activeDeviceId);
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
+    refocusBtn.disabled = false;
+
+    // Give autofocus a moment to lock before decoding
+    setStatus("warn", "Focusing… hold steady");
+    await new Promise(r => setTimeout(r, 800));
+
     setStatus("ok", "Scanning…");
 
-    // iOS-stable decode loop
+    // Decode from the existing video element stream (still use decodeFromVideoDevice for robustness)
+    // Some builds override the video element stream; to avoid fighting, we pass activeDeviceId anyway.
     codeReader.decodeFromVideoDevice(activeDeviceId, videoEl, (result, err) => {
       if (!result) return;
 
-      const raw = result.getText();
-      const text = normalizeBarcode(raw);
+      const text = normalizeBarcode(result.getText());
       const now = Date.now();
-
       if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
 
       lastValue = text;
       lastScanTs = now;
-
       renderTag(text, qtyInput.value);
     });
-
-    // Refresh list again shortly after start (more reliable on iOS)
-    setTimeout(() => { listCameras().catch(() => {}); }, 700);
   }
 
   function stopScanner() {
     try { if (codeReader) codeReader.reset(); } catch {}
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
     videoEl.srcObject = null;
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
+    refocusBtn.disabled = true;
     setStatus("warn", "Stopped");
+  }
+
+  async function refocus() {
+    // iOS web trick: restart the stream to force autofocus to reacquire
+    if (!stopBtn.disabled) {
+      setStatus("warn", "Refocusing…");
+      await startStreamWithFocus(activeDeviceId);
+      await new Promise(r => setTimeout(r, 600));
+      setStatus("ok", "Scanning…");
+    }
   }
 
   // Events
   startBtn.addEventListener("click", async () => {
     try {
-      await loadBaseDb();
+      await loadDb();
       await startScanner();
     } catch (e) {
       console.error(e);
       setStatus("bad", "Camera error");
-      tag.innerHTML = `<div class="muted">Could not start camera. Make sure you opened the GitHub Pages URL (HTTPS) and allowed camera access.</div>`;
       startBtn.disabled = false;
       stopBtn.disabled = true;
+      refocusBtn.disabled = true;
     }
   });
 
   stopBtn.addEventListener("click", stopScanner);
+  refocusBtn.addEventListener("click", refocus);
 
   cameraSelect.addEventListener("change", async () => {
     if (stopBtn.disabled) return;
-    try {
-      stopScanner();
-      await startScanner();
-    } catch {}
+    activeDeviceId = cameraSelect.value || null;
+    await refocus();
   });
 
-  reloadDbBtn.addEventListener("click", loadBaseDb);
+  reloadDbBtn.addEventListener("click", loadDb);
 
   manualBtn.addEventListener("click", () => {
     const code = manualInput.value.trim();
@@ -537,20 +418,8 @@
     if (e.key === "Enter") manualBtn.click();
   });
 
-  exportBtn.addEventListener("click", exportMergedDb);
-
-  clearLocalBtn.addEventListener("click", () => {
-    const ok = confirm("Clear all locally saved items? This does NOT change items.json in GitHub.");
-    if (!ok) return;
-    localStorage.removeItem(LOCAL_KEY);
-    loadLocalDb();
-    rebuildMergedMap();
-    setStatus("ok", `Local cleared (repo: ${baseMap.size}, local: 0)`);
-  });
-
   // Init
-  loadLocalDb();
-  loadBaseDb();
+  loadDb();
 </script>
 </body>
 </html>
