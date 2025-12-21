@@ -631,47 +631,63 @@
     }
   }
 
-  async function snapAndScan() {
-    if (!videoEl.videoWidth || !videoEl.videoHeight) return;
+ async function snapAndScan() {
+  if (!videoEl.videoWidth || !videoEl.videoHeight) return;
 
-    // Take a higher-res crop snapshot (center region)
-    const vw = videoEl.videoWidth;
-    const vh = videoEl.videoHeight;
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
 
-    const cropW = Math.floor(vw * 0.85);
-    const cropH = Math.floor(vh * 0.45);
-    const sx = Math.floor((vw - cropW) / 2);
-    const sy = Math.floor((vh - cropH) / 2);
+  // Larger crop for snapshot
+  const cropW = Math.floor(vw * 0.9);
+  const cropH = Math.floor(vh * 0.5);
+  const sx = Math.floor((vw - cropW) / 2);
+  const sy = Math.floor((vh - cropH) / 2);
 
-    const outW = 1400;
-    const outH = Math.max(1, Math.floor(outW * (cropH / cropW)));
+  const outW = 1600;
+  const outH = Math.floor(outW * (cropH / cropW));
 
-    snapCanvas.width = outW;
-    snapCanvas.height = outH;
+  snapCanvas.width = outW;
+  snapCanvas.height = outH;
 
-    const snapCtx = snapCanvas.getContext("2d");
-    snapCtx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
+  const snapCtx = snapCanvas.getContext("2d", { willReadFrequently: true });
 
-    snapCanvas.style.display = "block";
-    log("Snapshot captured. Decoding snapshot…");
+  // Draw original frame
+  snapCtx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
 
-    // Decode from the snapshot canvas (often easier than live scanning)
-    try {
-      const result = await reader.decodeFromCanvas(snapCanvas);
-      if (result) {
-        const code = result.getText();
-        log("Snapshot DETECTED: " + code);
-        handleBarcode(code, "snap");
-      } else {
-        log("Snapshot decode returned empty result.");
-      }
-    } catch (e) {
-      log("Snapshot decode: not found (try again / reduce glare).");
-      alert("No barcode detected in snapshot. Try again, avoid glare, and fill the scan box.");
-    } finally {
-      try { reader.reset(); } catch {}
-    }
+  // ---- CRITICAL STEP: convert to grayscale + increase contrast ----
+  const imgData = snapCtx.getImageData(0, 0, outW, outH);
+  const d = imgData.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    // Luminance formula
+    let gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+    // Contrast boost
+    gray = gray > 140 ? 255 : 0;
+
+    d[i] = d[i + 1] = d[i + 2] = gray;
   }
+
+  snapCtx.putImageData(imgData, 0, 0);
+  snapCanvas.style.display = "block";
+
+  log("Snapshot processed (grayscale + threshold). Decoding…");
+
+  try {
+    const result = await reader.decodeFromCanvas(snapCanvas);
+    if (result) {
+      const code = result.getText();
+      log("SNAP DETECTED: " + code);
+      handleBarcode(code, "snap");
+      return;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  alert("No barcode detected. Try holding steadier or tapping Focus, then Snap again.");
+}
+
 
   // Manual lookup
   manualBtn.addEventListener("click", () => {
