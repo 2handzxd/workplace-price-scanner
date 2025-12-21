@@ -80,7 +80,6 @@
       <div class="row" style="justify-content: space-between;">
         <div class="pill" id="statusPill"><span class="warn">●</span><span id="statusText">Ready</span></div>
 
-        <!-- ONLY Front/Back options -->
         <div class="row" style="min-width: 280px;">
           <select id="cameraSelect" aria-label="Camera selection">
             <option value="back">Back Camera</option>
@@ -95,7 +94,7 @@
       <div id="videoWrap">
         <video id="video" playsinline muted></video>
         <div id="overlay"><div class="box"></div></div>
-        <div id="hint">Tip: hold 6–10 inches away, avoid glare. Tap <b>Focus</b> if blurry. Torch works on back camera only.</div>
+        <div id="hint">Hold 6–10 inches away. Avoid glare. Torch works on back camera only. Tap Focus if blurry.</div>
       </div>
 
       <div style="height: 12px;"></div>
@@ -127,7 +126,7 @@
 
       <h3 style="margin: 0 0 8px; font-size: 14px;">Unknown barcodes → add entry</h3>
       <p class="muted" style="margin: 0 0 10px;">
-        If a scan isn’t found, fill the form and save it locally. Then click
+        If a scan isn’t found, fill the form and save locally. Then click
         <b>Download updated <code>items.json</code></b> and commit it to GitHub.
       </p>
 
@@ -164,15 +163,13 @@
   </div>
 </main>
 
-<!-- ZXing (UMD, exposes window.ZXing) -->
+<!-- ZXing UMD -->
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <script>
-  // ------------------ Config ------------------
   const ITEMS_DB_URL = "./items.json";
   const SCAN_THROTTLE_MS = 1200;
-  const LOCAL_KEY = "wps_local_items_v4";
-  // -------------------------------------------
+  const LOCAL_KEY = "wps_local_items_v5";
 
   const videoEl = document.getElementById("video");
   const startBtn = document.getElementById("startBtn");
@@ -197,18 +194,26 @@
   const clearLocalBtn = document.getElementById("clearLocalBtn");
   const localCountEl = document.getElementById("localCount");
 
+  // DB
   let baseMap = new Map();
   let localDb = [];
   let localMap = new Map();
   let mergedMap = new Map();
 
-  let reader = null;
-
+  // Camera/scan state
   let stream = null;
   let track = null;
-
   let torchOn = false;
 
+  // ZXing decoding
+  let decoder = null;
+  let barcodeReader = null;
+
+  // Canvas decoding
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  let scanning = false;
+  let rafId = null;
   let lastScanTs = 0;
   let lastValue = "";
 
@@ -262,8 +267,8 @@
     } catch (e) {
       console.error(e);
       rebuildMerged();
-      setStatus("bad", "DB load error");
-      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Make sure it’s next to <code>index.html</code>.</div>`;
+      setStatus("bad", "DB load error (check JSON)");
+      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Make sure it is valid JSON.</div>`;
     }
   }
 
@@ -273,7 +278,7 @@
     return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
 
-  // iPhone/ZXing often scans UPC-A as EAN-13 with leading 0
+  // EAN-13 is 13 digits. (UPC-A may come as 13 digits with leading 0.)
   function normalizeBarcode(raw) {
     const text = String(raw || "").trim();
     if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1);
@@ -332,27 +337,19 @@
       <div class="muted">Create an entry:</div>
 
       <label class="muted">Name</label>
-      <input id="f_name" placeholder="e.g., Paper Towels (2-pack)" value="${existing?.name ? escapeHtml(existing.name) : ""}"/>
+      <input id="f_name" placeholder="e.g., Item name" value="${existing?.name ? escapeHtml(existing.name) : ""}"/>
+
+      <label class="muted">Department</label>
+      <input id="f_dept" placeholder="e.g., Medicated Oil" value="${existing?.department ? escapeHtml(existing.department) : ""}"/>
 
       <label class="muted">Price (USD)</label>
-      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 4.99" value="${Number.isFinite(Number(existing?.price)) ? Number(existing.price) : ""}"/>
-
-      <div class="row">
-        <div style="flex:1; min-width: 180px;">
-          <label class="muted">SKU (optional)</label>
-          <input id="f_sku" placeholder="e.g., A-1001" value="${existing?.sku ? escapeHtml(existing.sku) : ""}"/>
-        </div>
-        <div style="flex:1; min-width: 180px;">
-          <label class="muted">Department (optional)</label>
-          <input id="f_dept" placeholder="e.g., Supplies" value="${existing?.department ? escapeHtml(existing.department) : ""}"/>
-        </div>
-      </div>
+      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 10" value="${Number.isFinite(Number(existing?.price)) ? Number(existing.price) : ""}"/>
 
       <label class="muted">Location (optional)</label>
-      <input id="f_loc" placeholder="e.g., Aisle 3 / Bay 2" value="${existing?.location ? escapeHtml(existing.location) : ""}"/>
+      <input id="f_loc" placeholder="e.g., Behind Counter" value="${existing?.location ? escapeHtml(existing.location) : ""}"/>
 
       <label class="muted">Note (optional)</label>
-      <input id="f_note" placeholder="e.g., Medium size" value="${existing?.note ? escapeHtml(existing.note) : ""}"/>
+      <input id="f_note" placeholder="e.g., Green, small 36ml" value="${existing?.note ? escapeHtml(existing.note) : ""}"/>
 
       <div class="row" style="margin-top: 10px;">
         <button id="saveItemBtn">Save entry</button>
@@ -365,21 +362,20 @@
 
     document.getElementById("saveItemBtn").onclick = () => {
       const name = document.getElementById("f_name").value.trim();
-      const price = Number(document.getElementById("f_price").value);
-      const sku = document.getElementById("f_sku").value.trim();
       const dept = document.getElementById("f_dept").value.trim();
+      const price = Number(document.getElementById("f_price").value);
       const loc = document.getElementById("f_loc").value.trim();
       const note = document.getElementById("f_note").value.trim();
 
       if (!name) { alert("Name is required."); return; }
-      if (!Number.isFinite(price)) { alert("Price must be a number (e.g., 4.99)."); return; }
+      if (!dept) { alert("Department is required."); return; }
+      if (!Number.isFinite(price)) { alert("Price must be a number (e.g., 10)."); return; }
 
       const item = {
         barcode: String(barcode),
         name,
+        department: dept,
         price: Math.round(price * 100) / 100,
-        ...(sku ? { sku } : {}),
-        ...(dept ? { department: dept } : {}),
         ...(loc ? { location: loc } : {}),
         ...(note ? { note } : {}),
         updated_at: new Date().toISOString()
@@ -392,6 +388,7 @@
 
   function renderTag(barcode, qty = 1) {
     const key = normalizeBarcode(barcode);
+
     lastBarcode.textContent = key || "—";
     lastTime.textContent = new Date().toLocaleString();
 
@@ -423,42 +420,62 @@
     downloadText("items.json", JSON.stringify(out, null, 2));
   }
 
-  function buildReader() {
+  function buildZXing() {
+    // ZXing uses luminance source from canvas
+    if (!window.ZXing) throw new Error("ZXing missing");
+
+    // formats we care about
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.UPC_A,
-      ZXing.BarcodeFormat.UPC_E,
       ZXing.BarcodeFormat.EAN_13,
       ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E,
       ZXing.BarcodeFormat.CODE_128,
       ZXing.BarcodeFormat.CODE_39,
       ZXing.BarcodeFormat.ITF
     ]);
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    return new ZXing.BrowserMultiFormatReader(hints, 200);
+
+    decoder = new ZXing.MultiFormatReader();
+    decoder.setHints(hints);
+
+    barcodeReader = new ZXing.BrowserBarcodeReader(); // provides createBinaryBitmap + helpers in UMD builds
   }
 
   function facingModeFromSelect() {
     return cameraSelect.value === "front" ? "user" : "environment";
   }
 
-  async function stopStreamOnly() {
+  async function stopAll() {
+    scanning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+
+    try { decoder = null; barcodeReader = null; } catch {}
+
     if (stream) {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
       track = null;
     }
     videoEl.srcObject = null;
+
     torchOn = false;
     torchBtn.disabled = true;
+
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    focusBtn.disabled = true;
+
+    setStatus("warn", "Stopped");
   }
 
-  async function startStreamOnly() {
-    await stopStreamOnly();
+  async function startCamera() {
+    await stopAll();
 
     const facing = facingModeFromSelect();
 
-    // Best-effort iPhone-friendly constraints for clarity/focus
     const constraints = {
       audio: false,
       video: {
@@ -470,14 +487,13 @@
 
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = stream;
-
-    // Important for iOS: play must follow a user gesture (Start button)
     await videoEl.play();
 
     track = stream.getVideoTracks()[0] || null;
 
-    // Torch capability check
+    // Torch (back camera only, if supported)
     torchBtn.disabled = true;
+    torchOn = false;
     if (track && track.getCapabilities) {
       const caps = track.getCapabilities();
       if (caps && ("torch" in caps) && caps.torch === true) {
@@ -490,65 +506,77 @@
     }
   }
 
-  function startDecodeLoop() {
-    if (!reader) reader = buildReader();
+  function startScanLoop() {
+    // iPhone reliable: draw to canvas and decode frames
+    scanning = true;
 
-    // Reset any previous decoding state
-    try { reader.reset(); } catch {}
+    const loop = () => {
+      if (!scanning || !videoEl.videoWidth || !videoEl.videoHeight) {
+        rafId = requestAnimationFrame(loop);
+        return;
+      }
 
-    // iPhone best: decode from the already-playing video element continuously
-    if (typeof reader.decodeFromVideoElementContinuously === "function") {
-      reader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
-        if (!result) return;
+      // smaller canvas improves speed; keep enough detail for barcode
+      const targetW = 720;
+      const scale = targetW / videoEl.videoWidth;
+      const w = targetW;
+      const h = Math.floor(videoEl.videoHeight * scale);
 
-        const text = normalizeBarcode(result.getText());
-        const now = Date.now();
-        if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
+      canvas.width = w;
+      canvas.height = h;
 
-        lastValue = text;
+      ctx.drawImage(videoEl, 0, 0, w, h);
+
+      // attempt decode every ~200ms (not every frame)
+      const now = Date.now();
+      const shouldTry = (now - lastScanTs) > 200;
+
+      if (shouldTry) {
         lastScanTs = now;
 
-        renderTag(text, qtyInput.value);
-      });
-      return;
-    }
+        try {
+          const imageData = ctx.getImageData(0, 0, w, h);
 
-    // Fallback (older builds)
-    if (typeof reader.decodeFromVideoElement === "function") {
-      const loop = async () => {
-        while (stream) {
-          try {
-            const result = await reader.decodeFromVideoElement(videoEl);
-            if (result) {
-              const text = normalizeBarcode(result.getText());
-              const now = Date.now();
-              if (!(text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS)) {
-                lastValue = text;
-                lastScanTs = now;
-                renderTag(text, qtyInput.value);
-              }
+          const luminance = new ZXing.RGBLuminanceSource(imageData.data, w, h);
+          const binarizer = new ZXing.HybridBinarizer(luminance);
+          const bitmap = new ZXing.BinaryBitmap(binarizer);
+
+          const result = decoder.decode(bitmap);
+          if (result) {
+            const text = normalizeBarcode(result.getText());
+
+            // throttle duplicates
+            const t = Date.now();
+            if (!(text === lastValue && (t - lastScanTs) < SCAN_THROTTLE_MS)) {
+              lastValue = text;
+              renderTag(text, qtyInput.value);
             }
-          } catch {}
-          await new Promise(r => setTimeout(r, 200));
+            // reset decoder for next reads
+            decoder.reset();
+          }
+        } catch {
+          // no code found - ignore
+          try { decoder.reset(); } catch {}
         }
-      };
-      loop();
-    }
+      }
+
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
   }
 
   async function startAll() {
+    setStatus("warn", "Starting…");
+    await loadBaseDb();
+
     if (!window.ZXing) {
       setStatus("bad", "Scanner library missing");
       return;
     }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus("bad", "Camera not supported");
-      return;
-    }
 
-    setStatus("warn", "Starting…");
-    await loadBaseDb();
-    await startStreamOnly();
+    buildZXing();
+    await startCamera();
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
@@ -558,43 +586,28 @@
     await new Promise(r => setTimeout(r, 700));
 
     setStatus("ok", "Scanning…");
-    startDecodeLoop();
-  }
-
-  async function stopAll() {
-    try { if (reader) reader.reset(); } catch {}
-    await stopStreamOnly();
-
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    focusBtn.disabled = true;
-    torchBtn.disabled = true;
-    setStatus("warn", "Stopped");
+    startScanLoop();
   }
 
   async function refocus() {
-    // iPhone web: best refocus is restarting the stream
     if (!stream) return;
     setStatus("warn", "Refocusing…");
-    await startStreamOnly();
+    await startCamera();
     await new Promise(r => setTimeout(r, 600));
     setStatus("ok", "Scanning…");
-    startDecodeLoop();
   }
 
   async function toggleTorch() {
     if (!track || !track.applyConstraints || !track.getCapabilities) return;
-
     const caps = track.getCapabilities();
     if (!(caps && ("torch" in caps) && caps.torch === true)) {
       torchBtn.disabled = true;
       return;
     }
-
     try {
       torchOn = !torchOn;
       await track.applyConstraints({ advanced: [{ torch: torchOn }] });
-    } catch (e) {
+    } catch {
       torchOn = false;
       torchBtn.disabled = true;
     }
@@ -603,19 +616,14 @@
   // UI events
   startBtn.addEventListener("click", () => startAll().catch(err => {
     console.error(err);
-    setStatus("bad", "Camera error");
+    setStatus("bad", "Start failed");
     stopAll();
   }));
 
   stopBtn.addEventListener("click", () => stopAll().catch(() => {}));
   focusBtn.addEventListener("click", () => refocus().catch(() => {}));
   torchBtn.addEventListener("click", () => toggleTorch().catch(() => {}));
-
-  cameraSelect.addEventListener("change", async () => {
-    if (!stream) return;
-    // Switch front/back while scanning
-    await refocus();
-  });
+  cameraSelect.addEventListener("change", async () => { if (stream) await refocus(); });
 
   reloadDbBtn.addEventListener("click", loadBaseDb);
 
@@ -623,10 +631,7 @@
     const code = manualInput.value.trim();
     if (code) renderTag(code, qtyInput.value);
   });
-
-  manualInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") manualBtn.click();
-  });
+  manualInput.addEventListener("keydown", (e) => { if (e.key === "Enter") manualBtn.click(); });
 
   exportBtn.addEventListener("click", exportMergedDb);
 
@@ -639,7 +644,7 @@
     setStatus("ok", `Local cleared (repo: ${baseMap.size}, local: 0)`);
   });
 
-  // Init
+  // init
   loadLocalDb();
   loadBaseDb();
 </script>
