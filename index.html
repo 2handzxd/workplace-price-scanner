@@ -22,12 +22,11 @@
     button.secondary { background: #25304f; }
     button.danger { background: #7a2230; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    input, select, textarea {
+    input, select {
       background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
       padding: 10px 12px; border-radius: 10px; width: 100%;
       box-sizing: border-box;
     }
-    textarea { min-height: 120px; resize: vertical; }
 
     #videoWrap { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid #223055; background: #070a12; }
     video { width: 100%; height: auto; display: block; }
@@ -53,10 +52,7 @@
       backdrop-filter: blur(6px);
     }
 
-    .tag {
-      display: grid; gap: 10px;
-      background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px;
-    }
+    .tag { display: grid; gap: 10px; background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px; }
     .price { font-size: 42px; font-weight: 900; letter-spacing: 0.3px; }
     .muted { color: #aab3cf; font-size: 13px; }
     .kvs { display: grid; gap: 6px; }
@@ -99,7 +95,7 @@
       <div id="videoWrap">
         <video id="video" playsinline muted></video>
         <div id="overlay"><div class="box"></div></div>
-        <div id="hint">Tip: hold 6–10 inches away, avoid glare. Tap <b>Focus</b> if blurry.</div>
+        <div id="hint">Tip: hold 6–10 inches away, avoid glare. Tap <b>Focus</b> if blurry. Torch works on back camera only.</div>
       </div>
 
       <div style="height: 12px;"></div>
@@ -107,7 +103,7 @@
       <div class="row">
         <button id="startBtn">Start</button>
         <button class="secondary" id="focusBtn" disabled>Focus</button>
-        <button class="secondary" id="flashBtn" disabled>Flashlight</button>
+        <button class="secondary" id="torchBtn" disabled>Flashlight</button>
         <button class="secondary" id="stopBtn" disabled>Stop</button>
       </div>
 
@@ -132,7 +128,7 @@
       <h3 style="margin: 0 0 8px; font-size: 14px;">Unknown barcodes → add entry</h3>
       <p class="muted" style="margin: 0 0 10px;">
         If a scan isn’t found, fill the form and save it locally. Then click
-        <b>Download updated <code>items.json</code></b> and commit it to your repo.
+        <b>Download updated <code>items.json</code></b> and commit it to GitHub.
       </p>
 
       <div class="row">
@@ -168,21 +164,21 @@
   </div>
 </main>
 
-<!-- ZXing -->
+<!-- ZXing (UMD, exposes window.ZXing) -->
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <script>
   // ------------------ Config ------------------
   const ITEMS_DB_URL = "./items.json";
   const SCAN_THROTTLE_MS = 1200;
-  const LOCAL_KEY = "wps_local_items_v3";
+  const LOCAL_KEY = "wps_local_items_v4";
   // -------------------------------------------
 
   const videoEl = document.getElementById("video");
   const startBtn = document.getElementById("startBtn");
   const stopBtn = document.getElementById("stopBtn");
   const focusBtn = document.getElementById("focusBtn");
-  const flashBtn = document.getElementById("flashBtn");
+  const torchBtn = document.getElementById("torchBtn");
 
   const cameraSelect = document.getElementById("cameraSelect");
   const statusText = document.getElementById("statusText");
@@ -201,20 +197,20 @@
   const clearLocalBtn = document.getElementById("clearLocalBtn");
   const localCountEl = document.getElementById("localCount");
 
-  let baseDb = [];
   let baseMap = new Map();
   let localDb = [];
   let localMap = new Map();
   let mergedMap = new Map();
 
-  let codeReader = null;
-  let currentStream = null;
-  let currentTrack = null;
+  let reader = null;
+
+  let stream = null;
+  let track = null;
+
+  let torchOn = false;
 
   let lastScanTs = 0;
   let lastValue = "";
-
-  let torchOn = false;
 
   function setStatus(kind, text) {
     statusText.textContent = text;
@@ -225,11 +221,6 @@
 
   function safeParseJson(text) {
     try { return JSON.parse(text); } catch { return null; }
-  }
-
-  function rebuildMergedMap() {
-    mergedMap = new Map(baseMap);
-    for (const [k, v] of localMap.entries()) mergedMap.set(k, v);
   }
 
   function loadLocalDb() {
@@ -246,7 +237,12 @@
   function saveLocalDb() {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(localDb, null, 2));
     loadLocalDb();
-    rebuildMergedMap();
+    rebuildMerged();
+  }
+
+  function rebuildMerged() {
+    mergedMap = new Map(baseMap);
+    for (const [k, v] of localMap.entries()) mergedMap.set(k, v);
   }
 
   async function loadBaseDb() {
@@ -255,17 +251,17 @@
       const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`DB fetch failed: ${res.status}`);
       const json = await res.json();
-      baseDb = Array.isArray(json) ? json : [];
 
       baseMap = new Map();
-      for (const item of baseDb) {
+      for (const item of (Array.isArray(json) ? json : [])) {
         if (item && item.barcode) baseMap.set(String(item.barcode), item);
       }
-      rebuildMergedMap();
+
+      rebuildMerged();
       setStatus("ok", `DB loaded (repo: ${baseMap.size}, local: ${localMap.size})`);
     } catch (e) {
       console.error(e);
-      rebuildMergedMap();
+      rebuildMerged();
       setStatus("bad", "DB load error");
       tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Make sure it’s next to <code>index.html</code>.</div>`;
     }
@@ -277,14 +273,12 @@
     return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
 
-  // iPhone/ZXing often scans UPC-A as EAN-13 with a leading 0
+  // iPhone/ZXing often scans UPC-A as EAN-13 with leading 0
   function normalizeBarcode(raw) {
     const text = String(raw || "").trim();
     if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1);
     return text;
   }
-
-  function nowStamp() { return new Date().toLocaleString(); }
 
   function escapeHtml(str) {
     return String(str)
@@ -297,8 +291,8 @@
 
   function renderTagForFound(item, barcode, qty) {
     const q = Math.max(1, parseInt(qty, 10) || 1);
-    const unitPrice = Number(item.price);
-    const total = Number.isFinite(unitPrice) ? unitPrice * q : null;
+    const unit = Number(item.price);
+    const total = Number.isFinite(unit) ? unit * q : null;
 
     tag.innerHTML = `
       <div class="muted">${item.department ? escapeHtml(item.department) : "Item"}</div>
@@ -327,7 +321,7 @@
   }
 
   function renderAddForm(barcode) {
-    const existingLocal = localMap.get(String(barcode)) || null;
+    const existing = localMap.get(String(barcode)) || null;
 
     tag.innerHTML = `
       <div class="muted">Unknown barcode</div>
@@ -338,35 +332,34 @@
       <div class="muted">Create an entry:</div>
 
       <label class="muted">Name</label>
-      <input id="f_name" placeholder="e.g., Paper Towels (2-pack)" value="${existingLocal?.name ? escapeHtml(existingLocal.name) : ""}"/>
+      <input id="f_name" placeholder="e.g., Paper Towels (2-pack)" value="${existing?.name ? escapeHtml(existing.name) : ""}"/>
 
       <label class="muted">Price (USD)</label>
-      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 4.99" value="${Number.isFinite(Number(existingLocal?.price)) ? Number(existingLocal.price) : ""}"/>
+      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 4.99" value="${Number.isFinite(Number(existing?.price)) ? Number(existing.price) : ""}"/>
 
       <div class="row">
         <div style="flex:1; min-width: 180px;">
           <label class="muted">SKU (optional)</label>
-          <input id="f_sku" placeholder="e.g., A-1001" value="${existingLocal?.sku ? escapeHtml(existingLocal.sku) : ""}"/>
+          <input id="f_sku" placeholder="e.g., A-1001" value="${existing?.sku ? escapeHtml(existing.sku) : ""}"/>
         </div>
         <div style="flex:1; min-width: 180px;">
           <label class="muted">Department (optional)</label>
-          <input id="f_dept" placeholder="e.g., Supplies" value="${existingLocal?.department ? escapeHtml(existingLocal.department) : ""}"/>
+          <input id="f_dept" placeholder="e.g., Supplies" value="${existing?.department ? escapeHtml(existing.department) : ""}"/>
         </div>
       </div>
 
       <label class="muted">Location (optional)</label>
-      <input id="f_loc" placeholder="e.g., Aisle 3 / Bay 2" value="${existingLocal?.location ? escapeHtml(existingLocal.location) : ""}"/>
+      <input id="f_loc" placeholder="e.g., Aisle 3 / Bay 2" value="${existing?.location ? escapeHtml(existing.location) : ""}"/>
 
       <label class="muted">Note (optional)</label>
-      <input id="f_note" placeholder="e.g., Medium size" value="${existingLocal?.note ? escapeHtml(existingLocal.note) : ""}"/>
+      <input id="f_note" placeholder="e.g., Medium size" value="${existing?.note ? escapeHtml(existing.note) : ""}"/>
 
       <div class="row" style="margin-top: 10px;">
         <button id="saveItemBtn">Save entry</button>
-        <button class="secondary" id="copyJsonBtn">Copy JSON entry</button>
       </div>
 
       <div class="muted small" style="margin-top:10px;">
-        Save adds it locally. Download <code>items.json</code> to publish to GitHub.
+        Saved locally. Use <b>Download updated items.json</b> to publish to GitHub.
       </div>
     `;
 
@@ -395,43 +388,17 @@
       upsertLocalItem(item);
       renderTag(item.barcode, qtyInput.value);
     };
-
-    document.getElementById("copyJsonBtn").onclick = async () => {
-      const name = document.getElementById("f_name").value.trim();
-      const price = Number(document.getElementById("f_price").value);
-      const sku = document.getElementById("f_sku").value.trim();
-      const dept = document.getElementById("f_dept").value.trim();
-      const loc = document.getElementById("f_loc").value.trim();
-      const note = document.getElementById("f_note").value.trim();
-
-      const entry = {
-        barcode: String(barcode),
-        ...(sku ? { sku } : {}),
-        name: name || "",
-        ...(dept ? { department: dept } : {}),
-        price: Number.isFinite(price) ? Math.round(price * 100) / 100 : 0,
-        ...(loc ? { location: loc } : {}),
-        ...(note ? { note } : {})
-      };
-
-      const txt = JSON.stringify(entry, null, 2);
-      try {
-        await navigator.clipboard.writeText(txt);
-        alert("JSON entry copied.");
-      } catch {
-        alert("Copy failed. Select and copy manually.");
-      }
-    };
   }
 
   function renderTag(barcode, qty = 1) {
-    const raw = String(barcode || "").trim();
-    const key = normalizeBarcode(raw);
-
+    const key = normalizeBarcode(barcode);
     lastBarcode.textContent = key || "—";
-    lastTime.textContent = nowStamp();
+    lastTime.textContent = new Date().toLocaleString();
 
-    if (!key) { tag.innerHTML = `<div class="muted">No barcode provided.</div>`; return; }
+    if (!key) {
+      tag.innerHTML = `<div class="muted">No barcode provided.</div>`;
+      return;
+    }
 
     const item = mergedMap.get(String(key));
     if (item) renderTagForFound(item, key, qty);
@@ -471,162 +438,183 @@
     return new ZXing.BrowserMultiFormatReader(hints, 200);
   }
 
-  function getFacingModeSelection() {
-    // Only two options: front/back
+  function facingModeFromSelect() {
     return cameraSelect.value === "front" ? "user" : "environment";
   }
 
-  async function startStream(facingMode) {
-    // Stop old stream
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-      currentStream = null;
-      currentTrack = null;
+  async function stopStreamOnly() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      track = null;
     }
+    videoEl.srcObject = null;
+    torchOn = false;
+    torchBtn.disabled = true;
+  }
 
-    // Focus-friendly constraints (best effort on iOS)
+  async function startStreamOnly() {
+    await stopStreamOnly();
+
+    const facing = facingModeFromSelect();
+
+    // Best-effort iPhone-friendly constraints for clarity/focus
     const constraints = {
       audio: false,
       video: {
-        facingMode: { ideal: facingMode },
+        facingMode: { ideal: facing },
         width: { ideal: 1920 },
         height: { ideal: 1080 }
       }
     };
 
-    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoEl.srcObject = currentStream;
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = stream;
+
+    // Important for iOS: play must follow a user gesture (Start button)
     await videoEl.play();
 
-    currentTrack = currentStream.getVideoTracks()[0];
+    track = stream.getVideoTracks()[0] || null;
 
-    // Enable/disable flashlight based on torch capability
-    torchOn = false;
-    flashBtn.disabled = true;
-
-    try {
-      const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
-      if (caps && caps.torch) flashBtn.disabled = false;
-    } catch {}
-
-    // Try to request continuous focus when supported
-    try {
-      const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
-      if (caps && caps.focusMode && currentTrack.applyConstraints) {
-        await currentTrack.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+    // Torch capability check
+    torchBtn.disabled = true;
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps && ("torch" in caps) && caps.torch === true) {
+        torchBtn.disabled = false;
       }
-    } catch {}
+      // Try continuous autofocus if exposed
+      if (caps && caps.focusMode && track.applyConstraints) {
+        try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch {}
+      }
+    }
   }
 
-  async function startScanner() {
-    if (!window.ZXing) { setStatus("bad", "Scanner library missing"); return; }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus("bad", "Camera not supported"); return; }
+  function startDecodeLoop() {
+    if (!reader) reader = buildReader();
 
-    setStatus("warn", "Starting camera…");
+    // Reset any previous decoding state
+    try { reader.reset(); } catch {}
 
-    // Reader fresh each time (helps iOS)
-    if (codeReader) { try { codeReader.reset(); } catch {} }
-    codeReader = buildReader();
+    // iPhone best: decode from the already-playing video element continuously
+    if (typeof reader.decodeFromVideoElementContinuously === "function") {
+      reader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
+        if (!result) return;
 
-    const facing = getFacingModeSelection();
+        const text = normalizeBarcode(result.getText());
+        const now = Date.now();
+        if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
 
-    // Warm-up improves autofocus/permission on iPhone
-    const warm = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
-    warm.getTracks().forEach(t => t.stop());
+        lastValue = text;
+        lastScanTs = now;
 
-    // Start stream with best-effort focus constraints
-    await startStream(facing);
+        renderTag(text, qtyInput.value);
+      });
+      return;
+    }
+
+    // Fallback (older builds)
+    if (typeof reader.decodeFromVideoElement === "function") {
+      const loop = async () => {
+        while (stream) {
+          try {
+            const result = await reader.decodeFromVideoElement(videoEl);
+            if (result) {
+              const text = normalizeBarcode(result.getText());
+              const now = Date.now();
+              if (!(text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS)) {
+                lastValue = text;
+                lastScanTs = now;
+                renderTag(text, qtyInput.value);
+              }
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 200));
+        }
+      };
+      loop();
+    }
+  }
+
+  async function startAll() {
+    if (!window.ZXing) {
+      setStatus("bad", "Scanner library missing");
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("bad", "Camera not supported");
+      return;
+    }
+
+    setStatus("warn", "Starting…");
+    await loadBaseDb();
+    await startStreamOnly();
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
     focusBtn.disabled = false;
-    flashBtn.disabled = flashBtn.disabled; // keep as set by capabilities
+
     setStatus("warn", "Focusing… hold steady");
     await new Promise(r => setTimeout(r, 700));
+
     setStatus("ok", "Scanning…");
-
-    // decodeFromVideoDevice can accept null to use current stream
-    // Passing null avoids deviceId enumeration and keeps it simple for iPhone.
-    codeReader.decodeFromVideoDevice(null, videoEl, (result, err) => {
-      if (!result) return;
-
-      const text = normalizeBarcode(result.getText());
-      const now = Date.now();
-
-      if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
-
-      lastValue = text;
-      lastScanTs = now;
-
-      renderTag(text, qtyInput.value);
-    });
+    startDecodeLoop();
   }
 
-  function stopScanner() {
-    try { if (codeReader) codeReader.reset(); } catch {}
-
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-      currentStream = null;
-      currentTrack = null;
-    }
-    videoEl.srcObject = null;
+  async function stopAll() {
+    try { if (reader) reader.reset(); } catch {}
+    await stopStreamOnly();
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
     focusBtn.disabled = true;
-    flashBtn.disabled = true;
-    torchOn = false;
-
+    torchBtn.disabled = true;
     setStatus("warn", "Stopped");
   }
 
-  async function doFocus() {
-    // iPhone web: best "focus" method is restarting the stream (forces autofocus reacquire)
-    if (stopBtn.disabled) return;
+  async function refocus() {
+    // iPhone web: best refocus is restarting the stream
+    if (!stream) return;
     setStatus("warn", "Refocusing…");
-    const facing = getFacingModeSelection();
-    await startStream(facing);
+    await startStreamOnly();
     await new Promise(r => setTimeout(r, 600));
     setStatus("ok", "Scanning…");
+    startDecodeLoop();
   }
 
-  async function toggleFlashlight() {
-    if (!currentTrack || !currentTrack.applyConstraints) return;
+  async function toggleTorch() {
+    if (!track || !track.applyConstraints || !track.getCapabilities) return;
+
+    const caps = track.getCapabilities();
+    if (!(caps && ("torch" in caps) && caps.torch === true)) {
+      torchBtn.disabled = true;
+      return;
+    }
+
     try {
       torchOn = !torchOn;
-      await currentTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
     } catch (e) {
-      // Torch isn't available on some devices/cameras
       torchOn = false;
-      flashBtn.disabled = true;
+      torchBtn.disabled = true;
     }
   }
 
-  // Events
-  startBtn.addEventListener("click", async () => {
-    try {
-      await loadBaseDb();
-      await startScanner();
-    } catch (e) {
-      console.error(e);
-      setStatus("bad", "Camera error");
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-      focusBtn.disabled = true;
-      flashBtn.disabled = true;
-    }
-  });
+  // UI events
+  startBtn.addEventListener("click", () => startAll().catch(err => {
+    console.error(err);
+    setStatus("bad", "Camera error");
+    stopAll();
+  }));
 
-  stopBtn.addEventListener("click", stopScanner);
-  focusBtn.addEventListener("click", doFocus);
-  flashBtn.addEventListener("click", toggleFlashlight);
+  stopBtn.addEventListener("click", () => stopAll().catch(() => {}));
+  focusBtn.addEventListener("click", () => refocus().catch(() => {}));
+  torchBtn.addEventListener("click", () => toggleTorch().catch(() => {}));
 
   cameraSelect.addEventListener("change", async () => {
-    // Restart scanner on camera swap
-    if (stopBtn.disabled) return;
-    stopScanner();
-    await startScanner();
+    if (!stream) return;
+    // Switch front/back while scanning
+    await refocus();
   });
 
   reloadDbBtn.addEventListener("click", loadBaseDb);
@@ -647,7 +635,7 @@
     if (!ok) return;
     localStorage.removeItem(LOCAL_KEY);
     loadLocalDb();
-    rebuildMergedMap();
+    rebuildMerged();
     setStatus("ok", `Local cleared (repo: ${baseMap.size}, local: 0)`);
   });
 
