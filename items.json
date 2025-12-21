@@ -2,7 +2,7 @@
   {
     "barcode": "4892874878191",
     "name": "Hua Tuo Huo Lu Oil",
-    "Section": "Medicated oil",
+    "department": "Medicated Oil",
     "price": 10,
     "location": "Behind Counter",
     "note": "Old Man Medicated Oil"
@@ -14,6 +14,5 @@
     "price": 5,
     "location": "Behind Counter",
     "note": "Green, small 36ml"
-
   }
 ]
