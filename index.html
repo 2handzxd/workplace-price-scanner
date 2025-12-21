@@ -9,7 +9,7 @@
     body { margin: 0; background: #0b0d12; color: #e8eaf0; }
     header { padding: 16px 18px; border-bottom: 1px solid #22283a; background: #0f1320; }
     header h1 { margin: 0; font-size: 18px; }
-    main { max-width: 980px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; }
+    main { max-width: 1040px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; }
     .grid { display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 
@@ -17,14 +17,17 @@
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     button {
       background: #2b67f6; color: #fff; border: 0; padding: 10px 12px;
-      border-radius: 10px; cursor: pointer; font-weight: 600;
+      border-radius: 10px; cursor: pointer; font-weight: 700;
     }
     button.secondary { background: #25304f; }
+    button.danger { background: #7a2230; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    input, select {
+    input, select, textarea {
       background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
       padding: 10px 12px; border-radius: 10px; width: 100%;
+      box-sizing: border-box;
     }
+    textarea { min-height: 110px; resize: vertical; }
 
     #videoWrap { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid #223055; background: #070a12; }
     video { width: 100%; height: auto; display: block; }
@@ -44,7 +47,7 @@
       display: grid; gap: 10px;
       background: #0b1020; border: 1px dashed #3a4a7a; border-radius: 14px; padding: 14px;
     }
-    .price { font-size: 42px; font-weight: 800; letter-spacing: 0.3px; }
+    .price { font-size: 42px; font-weight: 900; letter-spacing: 0.3px; }
     .muted { color: #aab3cf; font-size: 13px; }
     .kvs { display: grid; gap: 6px; }
     .kv { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #1a2342; padding: 6px 0; }
@@ -54,7 +57,11 @@
     .ok { color: #67f69b; }
     .warn { color: #ffcc66; }
     .bad { color: #ff6b6b; }
-    code { background: #0b1020; padding: 2px 6px; border-radius: 8px; }
+    code { background: #0b1020; padding: 2px 6px; border-radius: 8px; border: 1px solid #243056; }
+
+    .divider { height: 1px; background: #1f2740; margin: 12px 0; }
+    .small { font-size: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 </head>
 <body>
@@ -88,12 +95,12 @@
         <button class="secondary" id="torchBtn" disabled>Toggle Torch</button>
       </div>
 
-      <div style="height: 14px;"></div>
+      <div class="divider"></div>
 
       <div class="row">
         <div style="flex: 1; min-width: 260px;">
           <label class="muted" for="manualInput">Manual barcode lookup</label>
-          <input id="manualInput" placeholder="Type / paste a barcode (UPC/EAN/Code128)..." />
+          <input id="manualInput" placeholder="Type / paste a barcode..." />
         </div>
         <div style="width: 180px;">
           <label class="muted" for="qtyInput">Qty</label>
@@ -105,8 +112,24 @@
       </div>
 
       <p class="muted" style="margin: 12px 0 0;">
-        Tip: Best results with good lighting and holding the barcode inside the blue box.
+        Tip: Use good lighting and keep the barcode inside the blue box.
       </p>
+
+      <div class="divider"></div>
+
+      <h3 style="margin: 0 0 8px; font-size: 14px;">Database (No backend)</h3>
+      <p class="muted" style="margin: 0 0 10px;">
+        This app can’t write to GitHub directly (static site). When you add items, it stores them in your browser and lets you
+        <b>download an updated <code>items.json</code></b> that you commit back to the repo.
+      </p>
+
+      <div class="row">
+        <button class="secondary" id="exportBtn">Download updated items.json</button>
+        <button class="danger" id="clearLocalBtn" title="Clears locally saved items">Clear local saved items</button>
+      </div>
+      <div class="muted small" style="margin-top:8px;">
+        Local changes saved: <span id="localCount">0</span> item(s)
+      </div>
     </section>
 
     <aside class="card">
@@ -126,10 +149,9 @@
 
       <div style="height: 14px;"></div>
 
-      <h3 style="margin: 0 0 8px; font-size: 14px;">How it works</h3>
+      <h3 style="margin: 0 0 8px; font-size: 14px;">DB source</h3>
       <p class="muted" style="margin: 0;">
-        This page scans barcodes and looks up the result in <code>items.json</code> in your repo.
-        Update <code>items.json</code> anytime to change prices.
+        Loads from <code>items.json</code> in the repo, then overlays your local additions.
       </p>
     </aside>
   </div>
@@ -139,10 +161,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/index.min.js"></script>
 
 <script>
-  // ---------- Config ----------
-  const ITEMS_DB_URL = "./items.json"; // stored in your GitHub Pages repo
-  const SCAN_THROTTLE_MS = 1200;       // reduce duplicates
-  // ---------------------------
+  // ------------------ Config ------------------
+  const ITEMS_DB_URL = "./items.json";
+  const SCAN_THROTTLE_MS = 1200; // reduce duplicates
+  const LOCAL_KEY = "wps_local_items_v1"; // localStorage key
+  // -------------------------------------------
 
   const videoEl = document.getElementById("video");
   const startBtn = document.getElementById("startBtn");
@@ -161,8 +184,16 @@
   const lastBarcode = document.getElementById("lastBarcode");
   const lastTime = document.getElementById("lastTime");
 
-  let itemsDb = [];
-  let itemsMap = new Map(); // barcode -> item
+  const exportBtn = document.getElementById("exportBtn");
+  const clearLocalBtn = document.getElementById("clearLocalBtn");
+  const localCountEl = document.getElementById("localCount");
+
+  let baseDb = [];
+  let baseMap = new Map();   // from items.json
+  let localDb = [];          // locally added items
+  let localMap = new Map();  // local overlay
+  let mergedMap = new Map(); // local overrides base
+
   let codeReader = null;
   let currentStream = null;
   let lastScanTs = 0;
@@ -176,22 +207,52 @@
     dot.textContent = "●";
   }
 
-  async function loadDb() {
+  function safeParseJson(text) {
+    try { return JSON.parse(text); } catch { return null; }
+  }
+
+  function loadLocalDb() {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    const parsed = raw ? safeParseJson(raw) : null;
+    localDb = Array.isArray(parsed) ? parsed : [];
+    localMap = new Map();
+    for (const item of localDb) {
+      if (item && item.barcode) localMap.set(String(item.barcode), item);
+    }
+    localCountEl.textContent = String(localMap.size);
+  }
+
+  function saveLocalDb() {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(localDb, null, 2));
+    loadLocalDb();
+    rebuildMergedMap();
+  }
+
+  function rebuildMergedMap() {
+    mergedMap = new Map(baseMap);
+    for (const [k, v] of localMap.entries()) mergedMap.set(k, v); // local overrides
+  }
+
+  async function loadBaseDb() {
     setStatus("warn", "Loading DB…");
     try {
       const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
       if (!res.ok) throw new Error(`DB fetch failed: ${res.status}`);
-      itemsDb = await res.json();
+      const json = await res.json();
+      baseDb = Array.isArray(json) ? json : [];
 
-      itemsMap = new Map();
-      for (const item of itemsDb) {
-        if (item && item.barcode) itemsMap.set(String(item.barcode), item);
+      baseMap = new Map();
+      for (const item of baseDb) {
+        if (item && item.barcode) baseMap.set(String(item.barcode), item);
       }
-      setStatus("ok", `DB loaded (${itemsMap.size} items)`);
+
+      rebuildMergedMap();
+      setStatus("ok", `DB loaded (repo: ${baseMap.size}, local: ${localMap.size})`);
     } catch (e) {
       console.error(e);
+      rebuildMergedMap();
       setStatus("bad", "DB load error");
-      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Check your repo and Pages path.</div>`;
+      tag.innerHTML = `<div class="muted">Could not load <code>items.json</code>. Make sure it exists in your repo root.</div>`;
     }
   }
 
@@ -201,50 +262,209 @@
     return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
 
-  function renderTag(barcode, qty = 1) {
-    const key = String(barcode || "");
-    const item = itemsMap.get(key);
+  function nowStamp() {
+    return new Date().toLocaleString();
+  }
 
-    const now = new Date();
-    lastBarcode.textContent = key || "—";
-    lastTime.textContent = now.toLocaleString();
+  function sanitizeBarcode(b) {
+    const s = String(b || "").trim();
+    return s;
+  }
 
+  function renderTagForFound(item, barcode, qty) {
     const q = Math.max(1, parseInt(qty, 10) || 1);
-
-    if (!item) {
-      tag.innerHTML = `
-        <div class="muted">No match found for barcode:</div>
-        <div style="font-size:18px; font-weight:700;">${key || "—"}</div>
-        <div class="muted">Update <code>items.json</code> to add it.</div>
-      `;
-      return;
-    }
-
     const unitPrice = Number(item.price);
     const total = Number.isFinite(unitPrice) ? unitPrice * q : null;
 
     tag.innerHTML = `
       <div class="muted">${item.department ? item.department : "Item"}</div>
-      <div style="font-size:22px; font-weight:800; line-height:1.15;">${item.name || "Unnamed item"}</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.15;">${item.name || "Unnamed item"}</div>
 
       <div class="price">${money(item.price)}</div>
 
       <div class="kvs">
-        <div class="kv"><span>Barcode</span><span>${key}</span></div>
-        ${item.sku ? `<div class="kv"><span>SKU</span><span>${item.sku}</span></div>` : ""}
+        <div class="kv"><span>Barcode</span><span class="mono">${barcode}</span></div>
+        ${item.sku ? `<div class="kv"><span>SKU</span><span class="mono">${item.sku}</span></div>` : ""}
         ${item.location ? `<div class="kv"><span>Location</span><span>${item.location}</span></div>` : ""}
         <div class="kv"><span>Qty</span><span>${q}</span></div>
         ${total !== null ? `<div class="kv"><span>Total</span><span>${money(total)}</span></div>` : ""}
       </div>
 
       ${item.note ? `<div class="muted">Note: ${item.note}</div>` : ""}
+      <div class="muted small">Source: ${localMap.has(String(barcode)) ? "Local (not yet committed)" : "Repo items.json"}</div>
     `;
+  }
+
+  function renderAddForm(barcode) {
+    const existingLocal = localMap.get(String(barcode)) || null;
+
+    tag.innerHTML = `
+      <div class="muted">Unknown barcode</div>
+      <div style="font-size:18px; font-weight:900;" class="mono">${barcode}</div>
+
+      <div class="divider"></div>
+
+      <div class="muted">Add item details (saved locally in this browser):</div>
+
+      <label class="muted">Name</label>
+      <input id="f_name" placeholder="e.g., Paper Towels (2-pack)" value="${existingLocal?.name ? escapeHtml(existingLocal.name) : ""}"/>
+
+      <label class="muted">Price (USD)</label>
+      <input id="f_price" type="number" step="0.01" min="0" placeholder="e.g., 4.99" value="${Number.isFinite(Number(existingLocal?.price)) ? Number(existingLocal.price) : ""}"/>
+
+      <div class="row">
+        <div style="flex:1; min-width: 180px;">
+          <label class="muted">SKU (optional)</label>
+          <input id="f_sku" placeholder="e.g., A-1001" value="${existingLocal?.sku ? escapeHtml(existingLocal.sku) : ""}"/>
+        </div>
+        <div style="flex:1; min-width: 180px;">
+          <label class="muted">Department (optional)</label>
+          <input id="f_dept" placeholder="e.g., Supplies" value="${existingLocal?.department ? escapeHtml(existingLocal.department) : ""}"/>
+        </div>
+      </div>
+
+      <label class="muted">Location (optional)</label>
+      <input id="f_loc" placeholder="e.g., Aisle 3 / Bay 2" value="${existingLocal?.location ? escapeHtml(existingLocal.location) : ""}"/>
+
+      <label class="muted">Note (optional)</label>
+      <input id="f_note" placeholder="e.g., Medium size" value="${existingLocal?.note ? escapeHtml(existingLocal.note) : ""}"/>
+
+      <div class="row" style="margin-top: 10px;">
+        <button id="saveItemBtn">Save item</button>
+        <button class="secondary" id="copyJsonBtn">Copy JSON entry</button>
+      </div>
+
+      <div class="muted small" style="margin-top:10px;">
+        After saving a few items, click <b>Download updated items.json</b> and commit it to GitHub.
+      </div>
+    `;
+
+    document.getElementById("saveItemBtn").onclick = () => {
+      const name = document.getElementById("f_name").value.trim();
+      const price = Number(document.getElementById("f_price").value);
+      const sku = document.getElementById("f_sku").value.trim();
+      const dept = document.getElementById("f_dept").value.trim();
+      const loc = document.getElementById("f_loc").value.trim();
+      const note = document.getElementById("f_note").value.trim();
+
+      if (!name) {
+        alert("Name is required.");
+        return;
+      }
+      if (!Number.isFinite(price)) {
+        alert("Price must be a number (e.g., 4.99).");
+        return;
+      }
+
+      const item = {
+        barcode: String(barcode),
+        name,
+        price: Math.round(price * 100) / 100,
+        ...(sku ? { sku } : {}),
+        ...(dept ? { department: dept } : {}),
+        ...(loc ? { location: loc } : {}),
+        ...(note ? { note } : {}),
+        updated_at: new Date().toISOString()
+      };
+
+      upsertLocalItem(item);
+      renderTag(item.barcode, qtyInput.value);
+    };
+
+    document.getElementById("copyJsonBtn").onclick = async () => {
+      const entry = buildJsonEntryFromForm(barcode);
+      const txt = JSON.stringify(entry, null, 2);
+      try {
+        await navigator.clipboard.writeText(txt);
+        alert("JSON entry copied to clipboard.");
+      } catch {
+        alert("Copy failed (your browser blocked it). You can manually copy from the form values.");
+      }
+    };
+  }
+
+  function buildJsonEntryFromForm(barcode) {
+    const name = (document.getElementById("f_name")?.value || "").trim();
+    const priceRaw = document.getElementById("f_price")?.value;
+    const price = Number(priceRaw);
+    const sku = (document.getElementById("f_sku")?.value || "").trim();
+    const dept = (document.getElementById("f_dept")?.value || "").trim();
+    const loc = (document.getElementById("f_loc")?.value || "").trim();
+    const note = (document.getElementById("f_note")?.value || "").trim();
+
+    return {
+      barcode: String(barcode),
+      ...(sku ? { sku } : {}),
+      ...(name ? { name } : { name: "" }),
+      ...(dept ? { department: dept } : {}),
+      ...(Number.isFinite(price) ? { price: Math.round(price * 100) / 100 } : { price: 0 }),
+      ...(loc ? { location: loc } : {}),
+      ...(note ? { note } : {})
+    };
+  }
+
+  function upsertLocalItem(item) {
+    const bc = String(item.barcode);
+    const idx = localDb.findIndex(x => x && String(x.barcode) === bc);
+    if (idx >= 0) localDb[idx] = item;
+    else localDb.push(item);
+    saveLocalDb();
+  }
+
+  function renderTag(barcode, qty = 1) {
+    const key = sanitizeBarcode(barcode);
+
+    lastBarcode.textContent = key || "—";
+    lastTime.textContent = nowStamp();
+
+    if (!key) {
+      tag.innerHTML = `<div class="muted">No barcode provided.</div>`;
+      return;
+    }
+
+    const item = mergedMap.get(String(key));
+    if (item) {
+      renderTagForFound(item, key, qty);
+    } else {
+      renderAddForm(key);
+    }
+  }
+
+  function downloadText(filename, text) {
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportMergedDb() {
+    // Merge base + local (local overrides) into an array
+    const out = Array.from(mergedMap.values());
+
+    // Sort by barcode for easier editing
+    out.sort((a, b) => String(a.barcode).localeCompare(String(b.barcode)));
+
+    const text = JSON.stringify(out, null, 2);
+    downloadText("items.json", text);
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
   async function listCameras() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoInputs = devices.filter(d => d.kind === "videoinput");
-
     cameraSelect.innerHTML = "";
     videoInputs.forEach((d, idx) => {
       const opt = document.createElement("option");
@@ -252,7 +472,6 @@
       opt.textContent = d.label || `Camera ${idx + 1}`;
       cameraSelect.appendChild(opt);
     });
-
     return videoInputs;
   }
 
@@ -261,7 +480,6 @@
       setStatus("bad", "Scanner library missing");
       return;
     }
-
     setStatus("warn", "Starting camera…");
 
     if (currentStream) stopCamera();
@@ -281,9 +499,7 @@
     try {
       const track = currentStream.getVideoTracks()[0];
       const caps = track.getCapabilities ? track.getCapabilities() : {};
-      if (caps.torch) {
-        torchBtn.disabled = false;
-      }
+      if (caps.torch) torchBtn.disabled = false;
     } catch {}
 
     codeReader = codeReader || new ZXingBrowser.BrowserMultiFormatReader();
@@ -293,15 +509,11 @@
 
     setStatus("ok", "Scanning…");
 
-    // Decode loop
     codeReader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
       if (result) {
         const text = result.getText();
         const now = Date.now();
-
-        // Throttle duplicates
         if (text === lastValue && (now - lastScanTs) < SCAN_THROTTLE_MS) return;
-
         lastValue = text;
         lastScanTs = now;
 
@@ -311,9 +523,7 @@
   }
 
   function stopCamera() {
-    try {
-      if (codeReader) codeReader.reset();
-    } catch {}
+    try { if (codeReader) codeReader.reset(); } catch {}
 
     if (currentStream) {
       currentStream.getTracks().forEach(t => t.stop());
@@ -342,17 +552,16 @@
     }
   }
 
-  // ---------- Events ----------
+  // --------------- Events ---------------
   startBtn.addEventListener("click", async () => {
     try {
-      // iOS/Safari sometimes needs permission before labels appear
-      await loadDb();
+      await loadBaseDb();
       await listCameras();
       await startCamera(cameraSelect.value);
     } catch (e) {
       console.error(e);
       setStatus("bad", "Camera error");
-      tag.innerHTML = `<div class="muted">Could not start camera. Make sure you allowed camera access.</div>`;
+      tag.innerHTML = `<div class="muted">Could not start camera. Allow camera access (HTTPS required).</div>`;
     }
   });
 
@@ -364,7 +573,7 @@
     await startCamera(cameraSelect.value);
   });
 
-  reloadDbBtn.addEventListener("click", loadDb);
+  reloadDbBtn.addEventListener("click", loadBaseDb);
 
   manualBtn.addEventListener("click", () => {
     const code = manualInput.value.trim();
@@ -375,8 +584,22 @@
     if (e.key === "Enter") manualBtn.click();
   });
 
-  // Initial DB load (no camera needed)
-  loadDb();
+  exportBtn.addEventListener("click", () => {
+    exportMergedDb();
+  });
+
+  clearLocalBtn.addEventListener("click", () => {
+    const ok = confirm("Clear all locally saved items? This does NOT change items.json in GitHub.");
+    if (!ok) return;
+    localStorage.removeItem(LOCAL_KEY);
+    loadLocalDb();
+    rebuildMergedMap();
+    setStatus("ok", `Local cleared (repo: ${baseMap.size}, local: 0)`);
+  });
+
+  // --------------- Init ---------------
+  loadLocalDb();
+  loadBaseDb();
 </script>
 </body>
 </html>
