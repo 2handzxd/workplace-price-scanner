@@ -21,7 +21,7 @@
     }
     button.secondary { background: #25304f; }
     button.danger { background: #7a2230; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
     input, select {
       background: #0b1020; border: 1px solid #243056; color: #e8eaf0;
       padding: 10px 12px; border-radius: 10px; width: 100%;
@@ -35,7 +35,7 @@
     #overlay .box {
       width: min(74%, 560px);
       aspect-ratio: 2.2 / 1;
-      border: 3px solid rgba(43,103,246,0.9);
+      border: 3px solid rgba(43,103,246,0.95);
       border-radius: 14px;
       box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
     }
@@ -79,14 +79,17 @@
       white-space: pre-wrap;
     }
 
-    .thumbWrap { display: grid; gap: 10px; }
-    canvas#snapCanvas { width: 100%; border-radius: 14px; border: 1px solid #223055; background: #070a12; display: none; }
+    canvas#snapCanvas {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid #223055;
+      background: #070a12;
+      display: none;
+    }
   </style>
 </head>
 <body>
-<header>
-  <h1>Workplace Price Scanner</h1>
-</header>
+<header><h1>Workplace Price Scanner</h1></header>
 
 <main>
   <div class="grid">
@@ -108,8 +111,8 @@
         <video id="video" playsinline muted></video>
         <div id="overlay"><div class="box"></div></div>
         <div id="hint">
-          Tips: keep barcode inside the box, avoid glare, move 6–10 inches away.
-          Use <b>Snap</b> if live scanning struggles.
+          Keep barcode inside the box, avoid glare. Tap <b>Snap & Scan</b> if live scan misses.
+          <span class="small">(Flashlight may be unavailable on iOS if torch isn’t exposed.)</span>
         </div>
       </div>
 
@@ -123,7 +126,7 @@
         <button class="secondary" id="stopBtn" disabled>Stop</button>
       </div>
 
-      <div class="thumbWrap" style="margin-top:12px;">
+      <div style="margin-top:12px;">
         <canvas id="snapCanvas"></canvas>
       </div>
 
@@ -147,8 +150,7 @@
 
       <h3 style="margin:0 0 8px; font-size:14px;">Unknown barcode support</h3>
       <p class="muted" style="margin:0 0 10px;">
-        If a scanned code isn’t found, you’ll get a form to add it. It saves locally.
-        Use <b>Download updated <code>items.json</code></b> to publish to GitHub.
+        If a code isn’t found, fill the form and save locally. Then download updated <code>items.json</code>.
       </p>
 
       <div class="row">
@@ -178,34 +180,35 @@
         <div class="kv"><span>Barcode</span><span id="lastBarcode">—</span></div>
         <div class="kv"><span>Time</span><span id="lastTime">—</span></div>
         <div class="kv"><span>Mode</span><span id="lastMode">—</span></div>
+        <div class="kv"><span>Engine</span><span id="lastEngine">—</span></div>
       </div>
     </aside>
   </div>
 </main>
 
-<!-- ZXing (UMD) -->
+<!-- ZXing fallback (only used if BarcodeDetector not available) -->
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <script>
   // ------------------ CONFIG ------------------
-  const ITEMS_DB_URL = "./items.json";  // keep items.json next to index.html
-  const LOCAL_KEY = "wps_local_items_full_v1";
-  const ACCEPT_SAME_MS = 1200;          // throttle duplicates
-  const LIVE_INTERVAL_MS = 220;         // live scan attempt rate
+  const ITEMS_DB_URL = "./items.json";
+  const LOCAL_KEY = "wps_local_items_bd_v1";
+  const ACCEPT_SAME_MS = 1200;
+  const LIVE_INTERVAL_MS = 200;
   // --------------------------------------------
 
   const $ = (id) => document.getElementById(id);
 
   const videoEl = $("video");
   const snapCanvas = $("snapCanvas");
-  const snapBtn = $("snapBtn");
   const startBtn = $("startBtn");
   const stopBtn = $("stopBtn");
+  const snapBtn = $("snapBtn");
   const focusBtn = $("focusBtn");
   const torchBtn = $("torchBtn");
   const cameraSelect = $("cameraSelect");
-
   const reloadDbBtn = $("reloadDbBtn");
+
   const manualInput = $("manualInput");
   const manualBtn = $("manualBtn");
   const qtyInput = $("qtyInput");
@@ -218,31 +221,33 @@
   const lastBarcodeEl = $("lastBarcode");
   const lastTimeEl = $("lastTime");
   const lastModeEl = $("lastMode");
+  const lastEngineEl = $("lastEngine");
 
   const statusPill = $("statusPill");
   const statusText = $("statusText");
   const debugEl = $("debug");
 
-  // DB state
+  // DB
   let baseMap = new Map();
   let localDb = [];
   let localMap = new Map();
   let mergedMap = new Map();
 
-  // Camera state
+  // Camera
   let stream = null;
   let track = null;
   let torchOn = false;
 
-  // ZXing
-  let reader = null;
+  // Scan engines
+  let detector = null;  // BarcodeDetector (preferred)
+  let zxingReader = null; // ZXing fallback
   let liveTimer = null;
 
-  // Canvas for decoding
+  // Offscreen work canvas
   const workCanvas = document.createElement("canvas");
   const workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
 
-  // Duplicate throttle
+  // Throttle
   let lastAcceptedTs = 0;
   let lastAcceptedCode = "";
 
@@ -273,9 +278,7 @@
     const parsed = raw ? safeParseJson(raw) : null;
     localDb = Array.isArray(parsed) ? parsed : [];
     localMap = new Map();
-    for (const item of localDb) {
-      if (item?.barcode) localMap.set(String(item.barcode), item);
-    }
+    for (const item of localDb) if (item?.barcode) localMap.set(String(item.barcode), item);
     localCountEl.textContent = String(localMap.size);
   }
 
@@ -295,7 +298,7 @@
     log("Fetching items.json…");
     try {
       const res = await fetch(ITEMS_DB_URL, { cache: "no-store" });
-      log(`items.json HTTP status: ${res.status}`);
+      log(`items.json status: ${res.status}`);
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       const json = await res.json();
 
@@ -305,7 +308,6 @@
       }
       rebuildMerged();
       setStatus("ok", `DB loaded (repo: ${baseMap.size}, local: ${localMap.size})`);
-      log(`DB loaded. repo=${baseMap.size}, local=${localMap.size}`);
     } catch (e) {
       rebuildMerged();
       setStatus("bad", "DB load failed (scanner still works)");
@@ -319,10 +321,9 @@
     return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
 
-  // Normalize UPC-A sometimes returned as EAN-13 with leading 0
   function normalizeBarcode(raw) {
     const text = String(raw || "").trim();
-    if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1);
+    if (/^\d{13}$/.test(text) && text.startsWith("0")) return text.slice(1); // UPC-A sometimes
     return text;
   }
 
@@ -335,10 +336,11 @@
       .replaceAll("'", "&#039;");
   }
 
-  function setLastScan(code, mode) {
+  function setLastScan(code, mode, engine) {
     lastBarcodeEl.textContent = code || "—";
     lastTimeEl.textContent = new Date().toLocaleString();
     lastModeEl.textContent = mode || "—";
+    lastEngineEl.textContent = engine || "—";
   }
 
   function renderFound(item, barcode, qty) {
@@ -353,14 +355,13 @@
 
       <div class="kvs">
         <div class="kv"><span>Barcode</span><span class="mono">${escapeHtml(barcode)}</span></div>
-        ${item.sku ? `<div class="kv"><span>SKU</span><span class="mono">${escapeHtml(item.sku)}</span></div>` : ""}
         ${item.location ? `<div class="kv"><span>Location</span><span>${escapeHtml(item.location)}</span></div>` : ""}
         <div class="kv"><span>Qty</span><span>${q}</span></div>
         ${total !== null ? `<div class="kv"><span>Total</span><span>${money(total)}</span></div>` : ""}
       </div>
 
       ${item.note ? `<div class="muted">Note: ${escapeHtml(item.note)}</div>` : ""}
-      <div class="muted small">Source: ${localMap.has(String(barcode)) ? "Local (not yet committed)" : "Repo items.json"}</div>
+      <div class="muted small">Source: ${localMap.has(String(barcode)) ? "Local" : "Repo items.json"}</div>
     `;
   }
 
@@ -378,7 +379,6 @@
     tagEl.innerHTML = `
       <div class="muted">Unknown barcode</div>
       <div style="font-size:18px; font-weight:900;" class="mono">${escapeHtml(barcode)}</div>
-
       <div class="divider"></div>
 
       <label class="muted">Name</label>
@@ -398,10 +398,6 @@
 
       <div class="row" style="margin-top:10px;">
         <button id="saveItemBtn">Save entry</button>
-      </div>
-
-      <div class="muted small" style="margin-top:10px;">
-        Saved locally. Use <b>Download updated <code>items.json</code></b> to publish to GitHub.
       </div>
     `;
 
@@ -427,21 +423,20 @@
       };
 
       upsertLocalItem(item);
-      handleBarcode(barcode, "manual");
+      handleBarcode(barcode, "manual", "local");
     };
   }
 
-  function handleBarcode(rawCode, mode) {
+  function handleBarcode(rawCode, mode, engine) {
     const code = normalizeBarcode(rawCode);
     if (!code) return;
 
-    // Throttle duplicates
     const now = Date.now();
     if (code === lastAcceptedCode && (now - lastAcceptedTs) < ACCEPT_SAME_MS) return;
     lastAcceptedCode = code;
     lastAcceptedTs = now;
 
-    setLastScan(code, mode);
+    setLastScan(code, mode, engine);
 
     const item = mergedMap.get(String(code));
     if (item) renderFound(item, code, qtyInput.value);
@@ -452,36 +447,55 @@
     return cameraSelect.value === "front" ? "user" : "environment";
   }
 
-  function ensureReader() {
-    if (!window.ZXing) throw new Error("ZXing library not loaded.");
+  function ensureEngines() {
+    // Preferred: native BarcodeDetector
+    if ("BarcodeDetector" in window) {
+      try {
+        // iOS typically supports some subset; passing a broad list is OK (unsupported ones are ignored in many builds)
+        detector = new BarcodeDetector({
+          formats: [
+            "ean_13","ean_8","upc_a","upc_e",
+            "code_128","code_39","itf",
+            "qr_code","data_matrix","pdf417"
+          ]
+        });
+        log("BarcodeDetector: available ✅");
+      } catch (e) {
+        detector = null;
+        log("BarcodeDetector init failed: " + (e.message || e));
+      }
+    } else {
+      log("BarcodeDetector: not available ❌ (will use ZXing fallback)");
+    }
 
-    if (!reader) {
-      const hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        // Common retail + labels
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.ITF,
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.CODE_93,
-        // Optional (won't hurt)
-        ZXing.BarcodeFormat.QR_CODE,
-        ZXing.BarcodeFormat.DATA_MATRIX
-      ]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      reader = new ZXing.BrowserMultiFormatReader(hints, 200);
-      log("ZXing reader created.");
+    // Fallback: ZXing
+    if (!detector) {
+      if (!window.ZXing) throw new Error("ZXing not loaded");
+      if (!zxingReader) {
+        const hints = new Map();
+        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+          ZXing.BarcodeFormat.EAN_13,
+          ZXing.BarcodeFormat.EAN_8,
+          ZXing.BarcodeFormat.UPC_A,
+          ZXing.BarcodeFormat.UPC_E,
+          ZXing.BarcodeFormat.ITF,
+          ZXing.BarcodeFormat.CODE_128,
+          ZXing.BarcodeFormat.CODE_39,
+          ZXing.BarcodeFormat.CODE_93,
+          ZXing.BarcodeFormat.QR_CODE,
+          ZXing.BarcodeFormat.DATA_MATRIX,
+          ZXing.BarcodeFormat.PDF_417
+        ]);
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+        zxingReader = new ZXing.BrowserMultiFormatReader(hints, 200);
+        log("ZXing fallback: ready ✅");
+      }
     }
   }
 
   async function stopAll() {
     setStatus("warn", "Stopped");
     if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
-
-    try { if (reader) reader.reset(); } catch {}
 
     if (stream) {
       stream.getTracks().forEach(t => t.stop());
@@ -498,7 +512,6 @@
     focusBtn.disabled = true;
     snapBtn.disabled = true;
 
-    // Hide snap preview
     snapCanvas.style.display = "none";
     log("Stopped.");
   }
@@ -507,10 +520,9 @@
     await stopAll();
 
     setStatus("warn", "Starting…");
-    ensureReader();
+    ensureEngines();
 
     log("Requesting camera: " + facingMode());
-
     const constraints = {
       audio: false,
       video: {
@@ -525,33 +537,29 @@
     await videoEl.play();
 
     track = stream.getVideoTracks()[0] || null;
-    log(`Video started. ${videoEl.videoWidth}x${videoEl.videoHeight}`);
+    log(`Video started: ${videoEl.videoWidth}x${videoEl.videoHeight}`);
 
-    // Torch support (iOS Safari may not expose it)
+    // Torch support (often NOT exposed on iOS Safari)
     torchBtn.disabled = true;
     torchOn = false;
     if (track?.getCapabilities) {
       const caps = track.getCapabilities();
-      const keys = Object.keys(caps || {});
-      log("Track capability keys: " + keys.join(", "));
       if (caps && ("torch" in caps) && caps.torch === true) {
         torchBtn.disabled = false;
-        log("Torch supported: YES");
+        log("Torch supported ✅");
       } else {
-        log("Torch supported: NO (or not exposed by iOS Safari)");
+        log("Torch not exposed on this iPhone/Safari ❌");
       }
 
-      // Try continuous autofocus if supported
+      // Best-effort autofocus
       if (caps.focusMode && track.applyConstraints) {
         try {
           await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-          log("Requested focusMode=continuous");
+          log("Focus: requested continuous");
         } catch (e) {
-          log("focusMode continuous failed: " + (e.message || e));
+          log("Focus continuous failed: " + (e.message || e));
         }
       }
-    } else {
-      log("No getCapabilities() on track.");
     }
 
     startBtn.disabled = true;
@@ -560,53 +568,143 @@
     snapBtn.disabled = false;
 
     setStatus("ok", "Scanning…");
-
-    // Start LIVE scanning loop (canvas crop → decodeFromCanvas)
     startLiveScanLoop();
+  }
+
+  function drawCenterCropToCanvas(targetCanvas, scaleW = 900, scaleH = null) {
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+
+    // Center crop similar to overlay box
+    const cropW = Math.floor(vw * 0.78);
+    const cropH = Math.floor(vh * 0.34);
+    const sx = Math.floor((vw - cropW) / 2);
+    const sy = Math.floor((vh - cropH) / 2);
+
+    const outW = scaleW;
+    const outH = scaleH ?? Math.max(1, Math.floor(outW * (cropH / cropW)));
+
+    targetCanvas.width = outW;
+    targetCanvas.height = outH;
+
+    const tctx = targetCanvas.getContext("2d", { willReadFrequently: true });
+    tctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
+  }
+
+  async function detectOnCanvasOnce(canvas, engineLabel) {
+    // 1) BarcodeDetector path
+    if (detector) {
+      const results = await detector.detect(canvas);
+      if (results && results.length) {
+        // Choose the first result (usually best)
+        const raw = results[0].rawValue || results[0].raw || "";
+        if (raw) return { code: raw, engine: engineLabel || "BarcodeDetector" };
+      }
+      return null;
+    }
+
+    // 2) ZXing fallback path
+    if (zxingReader) {
+      try {
+        const result = await zxingReader.decodeFromCanvas(canvas);
+        if (result) return { code: result.getText(), engine: engineLabel || "ZXing" };
+      } catch {
+        // NotFound is normal
+      } finally {
+        try { zxingReader.reset(); } catch {}
+      }
+    }
+    return null;
   }
 
   function startLiveScanLoop() {
     if (liveTimer) clearInterval(liveTimer);
 
+    let tickCount = 0;
+
     liveTimer = setInterval(async () => {
       if (!videoEl.videoWidth || !videoEl.videoHeight) return;
 
-      // Crop center region (matches overlay)
-      const vw = videoEl.videoWidth;
-      const vh = videoEl.videoHeight;
-
-      const cropW = Math.floor(vw * 0.78);
-      const cropH = Math.floor(vh * 0.34);
-      const sx = Math.floor((vw - cropW) / 2);
-      const sy = Math.floor((vh - cropH) / 2);
-
-      const outW = 900;
-      const outH = Math.max(1, Math.floor(outW * (cropH / cropW)));
-
-      workCanvas.width = outW;
-      workCanvas.height = outH;
-      workCtx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
+      drawCenterCropToCanvas(workCanvas, 1000);
 
       try {
-        const result = await reader.decodeFromCanvas(workCanvas);
-        if (result) {
-          const code = result.getText();
-          handleBarcode(code, "live");
+        const hit = await detectOnCanvasOnce(workCanvas, detector ? "BarcodeDetector" : "ZXing");
+        if (hit?.code) {
+          handleBarcode(hit.code, "live", hit.engine);
         }
-      } catch (err) {
-        // NotFoundException is normal; ignore
-      } finally {
-        try { reader.reset(); } catch {}
+      } catch (e) {
+        // ignore
+      }
+
+      tickCount++;
+      if (tickCount % 20 === 0) {
+        log("Live scan running…");
       }
     }, LIVE_INTERVAL_MS);
 
     log("Live scan loop started.");
   }
 
+  async function snapAndScan() {
+    if (!videoEl.videoWidth || !videoEl.videoHeight) return;
+
+    // Snapshot crop bigger than live, higher res
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+
+    const cropW = Math.floor(vw * 0.9);
+    const cropH = Math.floor(vh * 0.5);
+    const sx = Math.floor((vw - cropW) / 2);
+    const sy = Math.floor((vh - cropH) / 2);
+
+    const outW = 1800;
+    const outH = Math.max(1, Math.floor(outW * (cropH / cropW)));
+
+    snapCanvas.width = outW;
+    snapCanvas.height = outH;
+
+    const ctx = snapCanvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
+    snapCanvas.style.display = "block";
+
+    log("Snap captured. Scanning snapshot…");
+
+    // Try multiple rotations (iPhone orientation issues)
+    const rotations = [0, 90, 180, 270];
+
+    for (const deg of rotations) {
+      const tmp = document.createElement("canvas");
+      const tctx = tmp.getContext("2d", { willReadFrequently: true });
+
+      if (deg === 0) {
+        tmp.width = snapCanvas.width;
+        tmp.height = snapCanvas.height;
+        tctx.drawImage(snapCanvas, 0, 0);
+      } else {
+        tmp.width = deg % 180 === 0 ? snapCanvas.width : snapCanvas.height;
+        tmp.height = deg % 180 === 0 ? snapCanvas.height : snapCanvas.width;
+        tctx.translate(tmp.width / 2, tmp.height / 2);
+        tctx.rotate(deg * Math.PI / 180);
+        tctx.drawImage(snapCanvas, -snapCanvas.width / 2, -snapCanvas.height / 2);
+        tctx.setTransform(1,0,0,1,0,0);
+      }
+
+      const hit = await detectOnCanvasOnce(tmp, detector ? "BarcodeDetector" : "ZXing");
+      if (hit?.code) {
+        log(`Snap detected at rotation ${deg}°: ${hit.code}`);
+        handleBarcode(hit.code, "snap", hit.engine);
+        return;
+      }
+    }
+
+    alert("No barcode detected. Try: avoid glare, fill the box, and keep the barcode flat.");
+    log("Snap: no barcode found.");
+  }
+
   async function refocus() {
     if (!stream) return;
     setStatus("warn", "Refocusing…");
-    log("Focus pressed (restart stream).");
+    log("Focus pressed (restart camera).");
     await startCamera();
   }
 
@@ -616,14 +714,14 @@
     const caps = track.getCapabilities();
     if (!caps || !("torch" in caps) || caps.torch !== true) {
       torchBtn.disabled = true;
-      log("Torch not supported.");
+      log("Torch not supported on this device/browser.");
       return;
     }
 
     try {
       torchOn = !torchOn;
       await track.applyConstraints({ advanced: [{ torch: torchOn }] });
-      log("Torch set: " + (torchOn ? "ON" : "OFF"));
+      log("Torch: " + (torchOn ? "ON" : "OFF"));
     } catch (e) {
       torchOn = false;
       torchBtn.disabled = true;
@@ -631,70 +729,12 @@
     }
   }
 
- async function snapAndScan() {
-  if (!videoEl.videoWidth || !videoEl.videoHeight) return;
-
-  const vw = videoEl.videoWidth;
-  const vh = videoEl.videoHeight;
-
-  // Larger crop for snapshot
-  const cropW = Math.floor(vw * 0.9);
-  const cropH = Math.floor(vh * 0.5);
-  const sx = Math.floor((vw - cropW) / 2);
-  const sy = Math.floor((vh - cropH) / 2);
-
-  const outW = 1600;
-  const outH = Math.floor(outW * (cropH / cropW));
-
-  snapCanvas.width = outW;
-  snapCanvas.height = outH;
-
-  const snapCtx = snapCanvas.getContext("2d", { willReadFrequently: true });
-
-  // Draw original frame
-  snapCtx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, outW, outH);
-
-  // ---- CRITICAL STEP: convert to grayscale + increase contrast ----
-  const imgData = snapCtx.getImageData(0, 0, outW, outH);
-  const d = imgData.data;
-
-  for (let i = 0; i < d.length; i += 4) {
-    // Luminance formula
-    let gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-
-    // Contrast boost
-    gray = gray > 140 ? 255 : 0;
-
-    d[i] = d[i + 1] = d[i + 2] = gray;
-  }
-
-  snapCtx.putImageData(imgData, 0, 0);
-  snapCanvas.style.display = "block";
-
-  log("Snapshot processed (grayscale + threshold). Decoding…");
-
-  try {
-    const result = await reader.decodeFromCanvas(snapCanvas);
-    if (result) {
-      const code = result.getText();
-      log("SNAP DETECTED: " + code);
-      handleBarcode(code, "snap");
-      return;
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  alert("No barcode detected. Try holding steadier or tapping Focus, then Snap again.");
-}
-
-
   // Manual lookup
   manualBtn.addEventListener("click", () => {
     const code = manualInput.value.trim();
     if (!code) return;
     log("Manual lookup: " + code);
-    handleBarcode(code, "manual");
+    handleBarcode(code, "manual", "manual");
   });
   manualInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") manualBtn.click();
@@ -760,7 +800,7 @@
   loadLocalDb();
   loadBaseDb();
   setStatus("warn", "Ready");
-  log("Loaded. Press Start to scan.");
+  log("Loaded. Press Start.");
 </script>
 </body>
 </html>
