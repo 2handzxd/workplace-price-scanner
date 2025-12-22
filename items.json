@@ -15,15 +15,15 @@
     "price": 8,
     "location": "Behind Counter",
     "note": "Green, Big 36ml",
-    "image": "eagle-medicated-oil-big-green.jpg"
-  }
-    {
-    "barcode": "",
+    "image": "images/eagle-medicated-oil-big-green.jpg"
+  },
+  {
+    "barcode": "UNKNOWN-EAGLE-SMALL-GREEN",
     "name": "Eagle Brand medicated oil",
     "department": "Medicated Oil",
     "price": 5,
     "location": "Behind Counter",
     "note": "Green, Small 24ml",
-    "image": "eagle-medicated-oil-small-green.jpg"
+    "image": "images/eagle-medicated-oil-small-green.jpg"
   }
 ]
