@@ -15,7 +15,7 @@
     "price": 8,
     "location": "Behind Counter",
     "note": "Green, Big 36ml",
-    "image": "images/eagle-medicated-oil.jpg"
+    "image": "eagle-medicated-oil-big-green.jpg"
   }
     {
     "barcode": "",
@@ -24,6 +24,6 @@
     "price": 5,
     "location": "Behind Counter",
     "note": "Green, Small 24ml",
-    "image": "images/eagle-medicated-oil.jpg"
+    "image": "eagle-medicated-oil-small-green.jpg"
   }
 ]
