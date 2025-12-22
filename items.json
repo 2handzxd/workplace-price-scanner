@@ -5,7 +5,8 @@
     "department": "Medicated Oil",
     "price": 10,
     "location": "Behind Counter",
-    "note": "Old Man Medicated Oil"
+    "note": "Old Man Medicated Oil",
+    "image": "images/hua-tuo-huo-lu-oil.jpg"
   },
   {
     "barcode": "8888951888807",
@@ -13,6 +14,7 @@
     "department": "Medicated Oil",
     "price": 5,
     "location": "Behind Counter",
-    "note": "Green, big 36ml. One box is $80"
+    "note": "Green, small 36ml",
+    "image": "images/eagle-medicated-oil.jpg"
   }
 ]
