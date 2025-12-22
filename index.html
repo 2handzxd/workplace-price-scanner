@@ -339,7 +339,6 @@ skuLookup.addEventListener("keydown", (e) => {
 
 // ---------- CAMERA ----------
 async function start(){
-  await loadItems();
 
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
@@ -439,6 +438,11 @@ exportBtn.onclick = () => {
   a.download = "items.json";
   a.click();
 };
+  // Load items immediately so search works without camera
+loadItems().then(() => {
+  console.log("items.json loaded for search");
+});
+
 </script>
 
 </body>
