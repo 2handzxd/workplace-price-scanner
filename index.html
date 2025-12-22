@@ -88,6 +88,20 @@ video{
   margin-left:8px;
   color:#cfd6ee;
 }
+.kv{
+  margin-top:8px;
+  display:grid;
+  gap:4px;
+}
+.kvRow{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  border-top:1px solid #1a2342;
+  padding-top:6px;
+  font-size:13px;
+}
+.kvRow span:first-child{color:#aab3cf}
 </style>
 </head>
 
@@ -129,7 +143,7 @@ video{
   <div class="row" style="margin-top:10px">
     <input id="nameLookup" placeholder="Search by name/keywords (e.g., eagle)" style="flex:1;min-width:220px">
     <button id="nameBtn">Search</button>
-    <button id="clearSearchBtn" class="secondary">Clear</button>
+    <button id="clearSearchBtn">Clear</button>
   </div>
 
   <div id="matches" class="list"></div>
@@ -203,27 +217,34 @@ function escapeHtml(s){
 }
 
 function displayItem(item){
+  const name = item.name || "Unnamed";
+  const dept = item.department || "";
+  const loc  = item.location || "—";
+  const note = item.note || "";
+  const bc   = String(item.barcode || "");
+
   resultEl.innerHTML = `
-    <div class="price">$${item.price}</div>
-    <div class="itemTitle">${escapeHtml(item.name || "Unnamed")}</div>
-    <div class="muted">
-      ${escapeHtml(item.department || "")}
-      ${item.location ? ` • ${escapeHtml(item.location)}` : ""}
+    <div class="price">$${escapeHtml(item.price)}</div>
+    <div class="itemTitle">${escapeHtml(name)}</div>
+    <div class="muted">${escapeHtml(dept)}</div>
+
+    <div class="kv">
+      <div class="kvRow"><span>Barcode/SKU</span><span><b>${escapeHtml(bc)}</b></span></div>
+      <div class="kvRow"><span>Location</span><span><b>${escapeHtml(loc)}</b></span></div>
+      ${note ? `<div class="kvRow"><span>Note</span><span>${escapeHtml(note)}</span></div>` : ""}
     </div>
-    <div class="muted mono" style="margin-top:6px">
-      Barcode/SKU: <b>${escapeHtml(item.barcode)}</b>
-    </div>
-    ${item.note ? `<div class="muted" style="margin-top:6px">Note: ${escapeHtml(item.note)}</div>` : ""}
   `;
+
   unknownCard.classList.add("hidden");
 }
 
 function handleCode(code){
   lastCode = String(code).trim();
   const item = itemsMap.get(lastCode);
+
   if(item){
     displayItem(item);
-    matchesEl.innerHTML = ""; // optional: clear matches after selection
+    matchesEl.innerHTML = ""; // optional
   } else {
     resultEl.innerHTML = `<b>Unknown SKU:</b><br>${escapeHtml(lastCode)}`;
     unknownCard.classList.remove("hidden");
@@ -237,23 +258,20 @@ function searchableText(item){
     item.name,
     item.note,
     item.department,
-    item.location,
-    item.Section,      // if your JSON uses Section
-    item.section
+    item.location
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function renderMatches(list, query){
   matchesEl.innerHTML = "";
-  if(!query){
-    return;
-  }
+
+  if(!query) return;
+
   if(list.length === 0){
     matchesEl.innerHTML = `<div class="muted">No matches for "${escapeHtml(query)}"</div>`;
     return;
   }
 
-  // cap results so it stays usable on phone
   const shown = list.slice(0, 30);
 
   for(const item of shown){
@@ -298,7 +316,6 @@ function searchByName(){
   renderMatches(results, q);
 }
 
-// live search as you type (fast enough for typical JSON sizes)
 let searchTimer = null;
 nameLookup.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -338,7 +355,6 @@ async function start(){
 
   track = stream.getVideoTracks()[0];
 
-  // torch support (often not exposed on iOS Safari)
   torchBtn.disabled = !(track.getCapabilities?.().torch === true);
 
   focusBtn.disabled = false;
@@ -362,11 +378,8 @@ function stop(){
 async function focus(){
   if(!track?.applyConstraints) return;
   try{
-    // Best-effort: request continuous autofocus
     await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-  }catch{
-    // Some devices ignore/deny; no-op
-  }
+  }catch{}
 }
 
 async function torch(){
@@ -375,7 +388,6 @@ async function torch(){
     track._torchOn = !track._torchOn;
     await track.applyConstraints({ advanced: [{ torch: track._torchOn }] });
   }catch{
-    // If it fails, disable button
     torchBtn.disabled = true;
   }
 }
@@ -386,7 +398,6 @@ focusBtn.onclick = focus;
 torchBtn.onclick = torch;
 
 cameraSelect.addEventListener("change", async () => {
-  // restart camera when switching front/back
   if(stream){
     stop();
     await start();
@@ -408,17 +419,17 @@ document.getElementById("saveUnknown").onclick = () => {
   const item = {
     barcode: lastCode,
     name,
+    department: dept || "",
     price: Math.round(price * 100) / 100,
-    ...(dept ? { department: dept } : {}),
-    ...(loc ? { location: loc } : {}),
-    ...(note ? { note } : {})
+    location: loc || "",
+    note: note || ""
   };
 
   items.push(item);
   itemsMap.set(lastCode, item);
   exportBtn.classList.remove("hidden");
   displayItem(item);
-  alert("Saved locally. Download updated items.json and commit it to GitHub.");
+  alert("Saved. Download updated items.json and commit it to GitHub.");
 };
 
 exportBtn.onclick = () => {
