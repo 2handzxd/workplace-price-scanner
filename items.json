@@ -10,20 +10,20 @@
   },
   {
     "barcode": "8888951888807",
-    "name": "Eagle Brand medicated oil",
+    "name": "Eagle Brand Green Medicated Oil 36ml",
     "department": "Medicated Oil",
     "price": 8,
     "location": "Behind Counter",
-    "note": "Green, Big 36ml",
+    "note": "Green, Big 36ml, 1 box $80",
     "image": "images/eagle-medicated-oil-big-green.jpg"
   },
   {
     "barcode": "UNKNOWN-EAGLE-SMALL-GREEN",
-    "name": "Eagle Brand medicated oil",
+    "name": "Eagle Brand Green Medicated Oil 24ml",
     "department": "Medicated Oil",
     "price": 5,
     "location": "Behind Counter",
-    "note": "Green, Small 24ml",
+    "note": "Green, Small 24ml, 1 box $50",
     "image": "images/eagle-medicated-oil-small-green.jpg"
   }
 ]
