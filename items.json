@@ -18,7 +18,7 @@
     "image": "images/eagle-medicated-oil-big-green.jpg"
   },
   {
-    "barcode": "UNKNOWN-EAGLE-SMALL-GREEN",
+    "barcode": "8888951888715",
     "name": "Eagle Brand Green Medicated Oil 24ml",
     "department": "Medicated Oil",
     "price": 5,
@@ -27,12 +27,57 @@
     "image": "images/eagle-medicated-oil-small-green.jpg"
   },
   {
-    "barcode": "UNKNOWN-KWAN-LOONG",
+    "barcode": "039278470109",
     "name": "Kwan Loong Medicated Oil",
     "department": "Medicated Oil",
     "price": 7,
     "location": "Behind Counter",
     "note": "White, Tall",
     "image": "images/kwan-loong-medicated-oil.jpg"
+  },
+    {
+    "barcode": "8888951887114",
+    "name": "Eagle Brand White Medicated Oil 24ml",
+    "department": "Medicated Oil",
+    "price": 5,
+    "location": "Behind Counter",
+    "note": "White, Small 24ml, 1 box $50",
+    "image": "images/eagle-medicated-oil-small-white.jpg"
+  },
+      {
+    "barcode": "8888951886117",
+    "name": "Eagle Brand Yellow Medicated Oil 24ml",
+    "department": "Medicated Oil",
+    "price": 5,
+    "location": "Behind Counter",
+    "note": "Yellow, Small 24ml, 1 box $50",
+    "image": "images/eagle-medicated-oil-small-yellow.jpg"
+  },
+      {
+    "barcode": "8888951887510",
+    "name": "Eagle Brand White Medicated Oil Roller 8ml",
+    "department": "Medicated Oil",
+    "price": 3,
+    "location": "Behind Counter",
+    "note": "White, Roller 8ml, 1 box $30",
+    "image": "images/eagle-medicated-oil-roller-white.jpg"
+  },
+      {
+    "barcode": "8888951888913",
+    "name": "Eagle Brand Green Medicated Oil Roller 8ml",
+    "department": "Medicated Oil",
+    "price": 3,
+    "location": "Behind Counter",
+    "note": "Green, Roller 8ml, 1 box $30",
+    "image": "images/eagle-medicated-oil-roller-green.jpg"
+  },
+      {
+    "barcode": "4892874",
+    "name": "Hysan Pain Reliever Oil",
+    "department": "Medicated Oil",
+    "price": 7,
+    "location": "Behind Counter",
+    "note": "White, 40ml",
+    "image": "images/hysan.jpg"
   }
 ]
