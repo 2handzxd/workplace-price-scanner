@@ -336,8 +336,9 @@
               ${escapeHtml(item.name || "Unnamed")}
               <span class="badge">$${escapeHtml(item.price)}</span>
             </div>
-            <div class="itemMeta">
+              <div class="itemMeta">
               SKU: <b>${escapeHtml(item.barcode)}</b>
+              ${item.note ? ` • ${escapeHtml(item.note)}` : ""}
               ${item.department ? ` • ${escapeHtml(item.department)}` : ""}
               ${item.location ? ` • ${escapeHtml(item.location)}` : ""}
             </div>
