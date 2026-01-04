@@ -144,6 +144,8 @@
   <div class="muted" style="margin-top:8px">
     Tip: keep barcode flat, fill most of the blue box, avoid glare.
   </div>
+
+  <div id="debug" class="muted" style="margin-top:10px;white-space:pre-wrap;"></div>
 </div>
 
 <!-- LOOKUP -->
@@ -232,8 +234,15 @@
 
   let items = [];
   let itemsMap = new Map();
+
   let reader = null, stream = null, track = null;
   let lastCode = "";
+
+  function logDebug(msg){
+    const d = document.getElementById("debug");
+    const t = new Date().toLocaleTimeString();
+    d.textContent = `[${t}] ${msg}\n` + d.textContent;
+  }
 
   function escapeHtml(s){
     return String(s ?? "")
@@ -336,7 +345,7 @@
               ${escapeHtml(item.name || "Unnamed")}
               <span class="badge">$${escapeHtml(item.price)}</span>
             </div>
-              <div class="itemMeta">
+            <div class="itemMeta">
               SKU: <b>${escapeHtml(item.barcode)}</b>
               ${item.note ? ` • ${escapeHtml(item.note)}` : ""}
               ${item.department ? ` • ${escapeHtml(item.department)}` : ""}
@@ -395,31 +404,64 @@
 
   // ---------- CAMERA ----------
   async function start(){
-    // Don’t reload DB here — searches should work without camera
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    try{
+      logDebug("START pressed.");
 
-    reader = new ZXing.BrowserMultiFormatReader(hints);
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.ITF
+      ]);
 
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: cameraSelect.value }
-    });
+      reader = new ZXing.BrowserMultiFormatReader(hints);
 
-    video.srcObject = stream;
-    await video.play();
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: cameraSelect.value },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
 
-    track = stream.getVideoTracks()[0];
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
 
-    // Torch support (often not exposed on iOS Safari)
-    torchBtn.disabled = !(track.getCapabilities?.().torch === true);
+      track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      logDebug("Video started: " + video.videoWidth + "x" + video.videoHeight);
+      logDebug("Capabilities keys: " + Object.keys(caps).join(", "));
 
-    focusBtn.disabled = false;
-    stopBtn.disabled = false;
-    startBtn.disabled = true;
+      torchBtn.disabled = !(caps && caps.torch === true);
+      focusBtn.disabled = false;
+      stopBtn.disabled = false;
+      startBtn.disabled = true;
 
-    reader.decodeFromVideoElement(video, (res) => {
-      if(res) handleCode(res.getText());
-    });
+      logDebug("Starting decodeFromVideoElementContinuously()");
+      reader.decodeFromVideoElementContinuously(video, (res, err) => {
+        if(res){
+          const code = res.getText();
+          logDebug("DETECTED: " + code);
+          handleCode(code);
+          try { navigator.vibrate?.(80); } catch {}
+        } else if(err){
+          const name = err?.name || "";
+          if(name && name !== "NotFoundException"){
+            logDebug("ZXing error: " + name + " - " + (err.message || err));
+          }
+        }
+      });
+
+    } catch(e){
+      logDebug("START failed: " + (e?.message || e));
+      alert("Camera start failed. Check permissions and reload.");
+    }
   }
 
   function stop(){
@@ -431,13 +473,18 @@
     stopBtn.disabled = true;
     torchBtn.disabled = true;
     focusBtn.disabled = true;
+
+    logDebug("Camera stopped.");
   }
 
   async function focus(){
     if(!track?.applyConstraints) return;
     try{
       await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
-    }catch{}
+      logDebug("Focus requested: continuous");
+    }catch(e){
+      logDebug("Focus failed/ignored.");
+    }
   }
 
   async function torch(){
@@ -445,8 +492,10 @@
     try{
       track._torchOn = !track._torchOn;
       await track.applyConstraints({ advanced: [{ torch: track._torchOn }] });
+      logDebug("Torch toggled: " + (track._torchOn ? "ON" : "OFF"));
     }catch{
       torchBtn.disabled = true;
+      logDebug("Torch not supported or blocked.");
     }
   }
 
@@ -505,8 +554,10 @@
     try{
       await loadItems();
       resultEl.textContent = "Database loaded. Ready to search or scan.";
+      logDebug("DB loaded. items=" + items.length);
     }catch(e){
       resultEl.textContent = "Failed to load items.json. Make sure it is in the repo root.";
+      logDebug("DB load failed: " + (e?.message || e));
       console.error(e);
     }
   })();
