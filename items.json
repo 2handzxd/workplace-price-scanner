@@ -81,7 +81,7 @@
     "image": "images/hysan.jpg"
   },
   {
-    "barcode": "medic",
+    "barcode": "856862006878",
     "name": "Nano Gold",
     "department": "Medicated Oil",
     "price": 10,
@@ -90,7 +90,7 @@
     "image": "images/nano_gold.jpg"
   },
   {
-    "barcode": "da",
+    "barcode": "856862006928",
     "name": "Nano Bear",
     "department": "Medicated Oil",
     "price": 10,
@@ -99,7 +99,7 @@
     "image": "images/nano_bear.jpg"
   },
   {
-    "barcode": "rh",
+    "barcode": "855133006173",
     "name": "Nano Rhino",
     "department": "Medicated Oil",
     "price": 8,
