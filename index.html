@@ -38,6 +38,9 @@
     border-radius:10px;
   }
   button{font-weight:800;cursor:pointer}
+  a{color:#8ab4ff;}
+  input[type="file"]{max-width:100%;box-sizing:border-box;}
+  label{max-width:100%;}
   button:disabled{opacity:.6;cursor:not-allowed}
   video{
     width:100%;
@@ -127,8 +130,8 @@
 <div class="card">
   <div class="row">
     <select id="cameraSelect">
-      <option value="environment">Back Camera</option>
-      <option value="user">Front Camera</option>
+      <option value="environment">Back Camera (phone)</option>
+      <option value="user">Front / laptop camera</option>
     </select>
     <button id="startBtn">Start</button>
     <button id="focusBtn" disabled>Focus</button>
@@ -137,7 +140,7 @@
   </div>
 
   <div style="position:relative;margin-top:10px">
-    <video id="video" playsinline muted></video>
+    <video id="video" autoplay playsinline muted></video>
     <div id="scanBox"></div>
   </div>
 
@@ -172,17 +175,46 @@
   <div id="result" class="result muted">Loading database…</div>
 </div>
 
+<!-- BATCH ENTRY -->
+<div class="card">
+  <h3>Add products in batches</h3>
+  <label><input id="batchMode" type="checkbox"> Scan to add products</label>
+  <p class="muted">Scan a barcode, fill in the details, save, then scan the next. A keyboard scanner can type into the barcode field and send Enter. Drafts stay on this browser; publishing requires GitHub write access.</p>
+  <form id="productForm">
+    <div class="row"><label>Barcode / SKU<br><input id="draftBarcode" required autocomplete="off"></label>
+    <label>Product name<br><input id="draftName" required></label>
+    <label>Price<br><input id="draftPrice" type="number" min="0" step="0.01" required inputmode="decimal"></label></div>
+    <div class="row" style="margin-top:10px"><label>Department<br><input id="draftDept"></label>
+    <label>Location<br><input id="draftLocation"></label>
+    <label>Note<br><input id="draftNote"></label>
+    <label>Image path (optional)<br><input id="draftImage" placeholder="images/product.jpg"></label></div>
+    <button id="saveDraft" type="submit" disabled style="margin-top:10px">Save draft &amp; next</button>
+    <button id="cancelEntry" type="button">Clear entry / next scan</button>
+  </form>
+  <p id="draftStatus" role="status" aria-live="polite" class="muted"></p>
+  <div class="row">
+    <button id="downloadCatalog" disabled>Download updated items.json</button>
+    <button id="backupDrafts">Back up drafts</button>
+    <label>Restore draft backup <input id="importDrafts" type="file" accept=".json,application/json"></label>
+  </div>
+  <details style="margin-top:10px"><summary id="draftCount">Saved drafts (0)</summary><div id="draftList" class="list"></div></details>
+  <p class="muted">Download the updated catalog, then upload it to GitHub as <span class="mono">items.json</span> in the repository root and commit. Drafts are not published automatically. Keep a backup before clearing browser data.</p>
+  <a href="https://github.com/2handzxd/workplace-price-scanner/upload/main" target="_blank" rel="noopener noreferrer">Upload catalog on GitHub (sign-in required)</a>
+</div>
+
 <!-- CATALOG MAINTENANCE -->
 <div class="card">
   <h3>Catalog updates</h3>
-  <p class="muted">Scanning and lookup are public. To update prices or add products, sign in to GitHub with an account that has write access to this repository.</p>
+  <p class="muted">Scanning and lookup are public. Only the owner, 2handzxd, should have repository write access. Drafts are local; publishing catalog changes requires GitHub sign-in and repository permissions.</p>
   <a href="https://github.com/2handzxd/workplace-price-scanner/edit/main/items.json" target="_blank" rel="noopener noreferrer">Edit catalog on GitHub</a>
-  <p id="unknownNotice" class="muted hidden">This barcode is missing from the catalog. Add it in the GitHub editor, then reload this page after the website updates.</p>
+  <p id="unknownNotice" class="muted hidden">This barcode is missing. Enable “Scan to add products” above, or enter its details in the batch form.</p>
 </div>
 
 </main>
 
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+
+<script src="./catalog-draft.js"></script>
 
 <script>
   const ITEMS_URL = "./items.json";
@@ -207,11 +239,16 @@
   let reader = null, stream = null, track = null;
   let lastCode = "";
   let starting = false;
+  let cameraSession = 0;
+  let catalogReady = false;
+  let entryLocked = false;
+  let lastDetection = "";
+  let lastDetectionAt = 0;
 
   function logDebug(msg){
     const d = document.getElementById("debug");
     const t = new Date().toLocaleTimeString();
-    d.textContent = `[${t}] ${msg}\n` + d.textContent;
+    d.textContent = (`[${t}] ${msg}\n` + d.textContent).slice(0,6000);
   }
 
   function escapeHtml(s){
@@ -227,7 +264,11 @@
     const res = await fetch(ITEMS_URL, { cache:"no-store" });
     if(!res.ok) throw new Error("Failed to load items.json: " + res.status);
     items = await res.json();
+    items = CatalogDraft.merge(items, []);
     itemsMap = new Map(items.map(i => [String(i.barcode), i]));
+    catalogReady = true;
+    document.getElementById("saveDraft").disabled = false;
+    renderDrafts();
   }
 
   function displayItem(item){
@@ -262,7 +303,11 @@
 
   function handleCode(code){
     lastCode = String(code).trim();
-    const item = itemsMap.get(lastCode);
+    if(document.getElementById("batchMode").checked){
+      captureEntry(lastCode);
+      return;
+    }
+    const item = itemsMap.get(lastCode) || drafts.find(i => i.barcode === lastCode);
 
     if(item){
       displayItem(item);
@@ -372,10 +417,161 @@
     if(e.key === "Enter") document.getElementById("skuBtn").click();
   });
 
+
+  // Local drafts never write to GitHub. Publishing uses GitHub's own sign-in.
+  const DRAFT_KEY = "workplace-scanner-drafts-v1";
+  const field = id => document.getElementById(id);
+  let drafts = [];
+  let editingDraft = "";
+  let storageHealthy = true;
+  function draftMessage(message){ field("draftStatus").textContent = message; }
+  try{
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if(saved) drafts = CatalogDraft.merge([], JSON.parse(saved));
+  }catch(e){
+    storageHealthy = false;
+    draftMessage("Could not restore browser drafts. Existing storage was left untouched. Restore a backup or download new drafts before leaving.");
+  }
+  function setDrafts(next){
+    let persisted = false;
+    if(storageHealthy){
+      try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(next)); persisted = true; }
+      catch(e){ storageHealthy = false; }
+    }
+    drafts = next;
+    renderDrafts();
+    return persisted;
+  }
+  function renderDrafts(){
+    field("draftCount").textContent = "Saved drafts (" + drafts.length + ")";
+    field("downloadCatalog").disabled = !catalogReady || !drafts.length;
+    const list = field("draftList");
+    list.innerHTML = "";
+    for(const item of drafts){
+      const row = document.createElement("div");
+      row.className = "row";
+      const text = document.createElement("span");
+      text.textContent = item.barcode + " — " + item.name + " — $" + item.price.toFixed(2);
+      const edit = document.createElement("button");
+      edit.type = "button"; edit.textContent = "Edit draft";
+      edit.onclick = () => {
+        if(entryHasDetails() && !confirm("Replace the unsaved entry with this saved draft?")) return;
+        fillEntry(item); entryLocked = true;
+        field("draftName").focus();
+      };
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.textContent = "Remove";
+      remove.onclick = () => {
+        if(!confirm("Remove draft " + item.barcode + "?")) return;
+        const persisted = setDrafts(drafts.filter(i => i.barcode !== item.barcode));
+        draftMessage(persisted ? "Draft removed." : "Draft removed in this tab only. Back up drafts; browser storage is unavailable.");
+      };
+      row.appendChild(text); row.appendChild(edit); row.appendChild(remove);
+      list.appendChild(row);
+    }
+  }
+  function entryHasDetails(){
+    return ["draftName","draftPrice","draftNote","draftImage"].some(id=>field(id).value.trim());
+  }
+  function fillEntry(item){
+    editingDraft = item.barcode;
+    for(const [id,key] of [["draftBarcode","barcode"],["draftName","name"],["draftPrice","price"],["draftDept","department"],["draftLocation","location"],["draftNote","note"],["draftImage","image"]])
+      field(id).value = item[key] ?? "";
+  }
+  function clearEntry(){
+    // Keep department and location for consecutive products on the same shelf.
+    for(const id of ["draftBarcode","draftName","draftPrice","draftNote","draftImage"]) field(id).value = "";
+    entryLocked = false;
+    editingDraft = "";
+    field("draftBarcode").focus();
+  }
+  function captureEntry(code){
+    if(entryLocked || !catalogReady || !code) return;
+    if(itemsMap.has(code)){
+      displayItem(itemsMap.get(code));
+      draftMessage("Already in the published catalog: " + code + ". Edit existing products on GitHub.");
+      return;
+    }
+    const existing = drafts.find(i=>i.barcode === code);
+    if(existing) fillEntry(existing);
+    else field("draftBarcode").value = code;
+    entryLocked = true;
+    draftMessage(existing ? "This barcode is already a draft. Saving updates that draft." : "Barcode captured. Fill in the product details, then save.");
+    field("draftName").focus();
+  }
+  field("draftBarcode").addEventListener("keydown", e=>{
+    if(e.key === "Enter"){
+      e.preventDefault();
+      entryLocked = false;
+      captureEntry(field("draftBarcode").value.trim());
+    }
+  });
+  field("productForm").addEventListener("input", ()=>{entryLocked = true;});
+  field("cancelEntry").onclick = () => {
+    if(entryHasDetails() && !confirm("Discard this unsaved entry?")) return;
+    clearEntry(); draftMessage("Ready for the next barcode.");
+  };
+  field("productForm").addEventListener("submit", e=>{
+    e.preventDefault();
+    if(!catalogReady) return draftMessage("Wait for the catalog to load before adding products.");
+    try{
+      const rawPrice = field("draftPrice").value.trim();
+      if(!rawPrice) throw new Error("Price is required.");
+      const item = CatalogDraft.validate({
+        barcode:field("draftBarcode").value.trim(),
+        name:field("draftName").value.trim(),
+        price:Number(rawPrice),
+        department:field("draftDept").value.trim(),
+        location:field("draftLocation").value.trim(),
+        note:field("draftNote").value.trim(),
+        ...(field("draftImage").value.trim() ? {image:field("draftImage").value.trim()} : {})
+      });
+      if(itemsMap.has(item.barcode)) throw new Error("This barcode is already published. Edit it on GitHub.");
+      if(editingDraft && editingDraft !== item.barcode && drafts.some(i=>i.barcode === item.barcode)) throw new Error("Another draft already uses this barcode.");
+      const next = drafts.filter(i=>i.barcode !== item.barcode && i.barcode !== editingDraft);
+      next.push(item);
+      const persisted = setDrafts(next);
+      clearEntry();
+      draftMessage(persisted ? "Saved " + item.name + ". Ready for the next barcode. " + drafts.length + " drafts saved on this browser." : "Saved in this tab only. Browser storage is unavailable; back up drafts before leaving.");
+    }catch(e){ draftMessage(e.message); }
+  });
+  function downloadJSON(data, filename){
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2) + "\n"],{type:"application/json"}));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  }
+  field("backupDrafts").onclick = () => downloadJSON(drafts, "product-drafts.json");
+  field("importDrafts").addEventListener("change", async e=>{
+    try{
+      const file = e.target.files[0];
+      if(!file) return;
+      if(file.size > 10*1024*1024) throw new Error("Backup is too large (maximum 10 MB).");
+      const next = CatalogDraft.merge(drafts, JSON.parse(await file.text()));
+      const persisted = setDrafts(next);
+      draftMessage(persisted ? "Restored " + drafts.length + " drafts." : "Restored in this tab only. Back up drafts before leaving.");
+    }catch(error){ draftMessage("Restore failed: " + error.message); }
+    finally { e.target.value = ""; }
+  });
+  field("downloadCatalog").onclick = async () => {
+    field("downloadCatalog").disabled = true;
+    try{
+      const res = await fetch(ITEMS_URL, {cache:"no-store"});
+      if(!res.ok) throw new Error("Could not refresh the catalog. Retry when connected; your drafts are safe.");
+      const merged = CatalogDraft.merge(await res.json(), drafts);
+      downloadJSON(merged, "items.json");
+      draftMessage("Downloaded " + merged.length + " products. Upload items.json to GitHub and commit while signed in as 2handzxd. Drafts are kept as a backup.");
+    }catch(e){ draftMessage("Download failed: " + e.message); }
+    finally{ renderDrafts(); }
+  };
+  renderDrafts();
+
   // ---------- CAMERA ----------
   async function start(){
     if(starting || stream) return;
     starting = true;
+    const session = ++cameraSession;
     startBtn.disabled = true;
     cameraSelect.disabled = true;
     try{
@@ -399,32 +595,52 @@
 
       reader = new ZXing.BrowserMultiFormatReader(hints);
 
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: cameraSelect.value },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
+      const selected = cameraSelect.value;
+      const constraints = selected.startsWith("device:")
+        ? {deviceId:{exact:selected.slice(7)}}
+        : {facingMode:{ideal:selected}};
+      let acquired;
+      try{
+        acquired = await navigator.mediaDevices.getUserMedia({audio:false,video:{...constraints,width:{ideal:1280},height:{ideal:720}}});
+      }catch(e){
+        if(!["OverconstrainedError","NotFoundError"].includes(e.name)) throw e;
+        acquired = await navigator.mediaDevices.getUserMedia({audio:false,video:true});
+      }
+      if(session !== cameraSession){
+        acquired.getTracks().forEach(t=>t.stop());
+        return;
+      }
+      stream = acquired;
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
 
       video.srcObject = stream;
       video.setAttribute("playsinline", "true");
       await video.play();
 
+      if(session !== cameraSession) return;
       track = stream.getVideoTracks()[0];
-      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      await refreshCameras();
+      if(session !== cameraSession) return;
+      let caps = {};
+      try{ caps = track.getCapabilities ? track.getCapabilities() : {}; }catch{}
       logDebug("Video started: " + video.videoWidth + "x" + video.videoHeight);
       logDebug("Capabilities keys: " + Object.keys(caps).join(", "));
 
       torchBtn.disabled = !(caps && caps.torch === true);
-      focusBtn.disabled = false;
+      focusBtn.disabled = !caps.focusMode?.includes("continuous");
       stopBtn.disabled = false;
       startBtn.disabled = true;
 
       logDebug("Starting decodeFromVideoElementContinuously()");
-      reader.decodeFromVideoElementContinuously(video, (res, err) => {
+      const activeReader = reader;
+      await activeReader.decodeFromVideoElementContinuously(video, (res, err) => {
+        if(session !== cameraSession || entryLocked) return;
         if(res){
           const code = res.getText();
+          if(code === lastDetection && (field("batchMode").checked || Date.now() - lastDetectionAt < 1500)) return;
+          lastDetection = code; lastDetectionAt = Date.now();
           logDebug("DETECTED: " + code);
           handleCode(code);
           try { navigator.vibrate?.(80); } catch {}
@@ -437,16 +653,35 @@
       });
 
     } catch(e){
+      if(session !== cameraSession) return;
       stop();
       logDebug("START failed: " + (e?.message || e));
-      alert("Camera start failed: " + (e?.message || e));
+      const message = e.name === "NotAllowedError" ? "Allow camera access in Safari/browser settings, then press Start again." : e.name === "NotReadableError" ? "Camera is busy. Close other camera apps or tabs and retry." : (e?.message || e);
+      alert("Camera start failed: " + message);
     } finally {
       starting = false;
       cameraSelect.disabled = false;
     }
   }
 
+  async function refreshCameras(){
+    if(!navigator.mediaDevices.enumerateDevices) return;
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      for(const option of [...cameraSelect.options]) if(option.value.startsWith("device:")) option.remove();
+      for(const device of devices.filter(d=>d.kind === "videoinput" && d.deviceId)){
+        const option = document.createElement("option");
+        option.value = "device:" + device.deviceId;
+        option.textContent = device.label || "Camera " + (cameraSelect.options.length - 1);
+        cameraSelect.appendChild(option);
+      }
+      const id = track?.getSettings?.().deviceId;
+      if(id) cameraSelect.value = "device:" + id;
+    }catch(e){ logDebug("Camera list unavailable: " + e.message); }
+  }
+
   function stop(){
+    cameraSession++;
     try { reader?.reset(); } catch {}
     try { stream?.getTracks().forEach(t => t.stop()); } catch {}
     reader = null; stream = null; track = null;
@@ -495,6 +730,7 @@
   });
 
   window.addEventListener("pagehide", stop);
+  document.addEventListener("visibilitychange", () => { if(document.hidden) stop(); });
 
   // ---------- INIT ----------
   (async () => {
